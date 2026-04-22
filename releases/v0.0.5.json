@@ -1,0 +1,76 @@
+{
+  "schemaVersion": 1,
+  "release": {
+    "tag": "v0.0.5",
+    "version": "0.0.5",
+    "commitSha": "0f99f46288088442e996ef68602414adba1a84e2",
+    "releasedAt": "2026-04-22T15:45:36Z",
+    "url": "https://github.com/b3belov/HustleOps/releases/tag/v0.0.5",
+    "sourceUrl": "https://github.com/b3belov/HustleOps"
+  },
+  "images": {
+    "backend": {
+      "name": "hustleops-backend",
+      "ref": "ghcr.io/b3belov/hustleops-backend",
+      "tags": [
+        "0.0.5",
+        "0.0",
+        "latest"
+      ],
+      "digest": "sha256:9bc69df18b730cd5aaf1a4035aeb5d6b484c5b88ced5148f1620cfe2a5d0cd77"
+    },
+    "frontend": {
+      "name": "hustleops-frontend",
+      "ref": "ghcr.io/b3belov/hustleops-frontend",
+      "tags": [
+        "0.0.5",
+        "0.0",
+        "latest"
+      ],
+      "digest": "sha256:185fcd8431d6a36dc5cdfe07fae51cf4039499474ce13a355920d356fb044f61"
+    }
+  },
+  "deploy": {
+    "trigger": "release-v0.0.5-0f99f4628808",
+    "publicPorts": [
+      80,
+      5678,
+      5601
+    ],
+    "upstreams": {
+      "frontend": {
+        "service": "frontend",
+        "port": 8080
+      },
+      "api": {
+        "service": "backend",
+        "port": 3000,
+        "path": "/api/"
+      },
+      "socketIo": {
+        "service": "backend",
+        "port": 3000,
+        "path": "/socket.io/"
+      },
+      "n8n": {
+        "service": "n8n",
+        "port": 5678
+      },
+      "opensearchDashboards": {
+        "service": "opensearch-dashboards",
+        "port": 5601
+      }
+    }
+  },
+  "extensions": {
+    "deployment": {
+      "envFilePath": ".env.example",
+      "composePath": "docker-compose.prod.yml",
+      "nginxConfigPath": "nginx/nginx.conf",
+      "nginxSecurityHeadersPath": "nginx/security-headers.conf",
+      "manifestPath": "release-manifest.json",
+      "deploymentTriggerPath": "deployment/release-trigger.txt",
+      "immutableReleasePath": "releases/v0.0.5.json"
+    }
+  }
+}

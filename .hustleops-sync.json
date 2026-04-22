@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "managedFiles": [
+    "README.md",
+    ".env.example",
+    "docker-compose.prod.yml",
+    "data/postgres/.gitkeep",
+    "data/n8n/postgres/.gitkeep",
+    "nginx/nginx.conf",
+    "nginx/security-headers.conf",
+    "release-manifest.json",
+    "deployment/release-trigger.txt",
+    "data/uploads/.gitkeep"
+  ],
+  "appendOnlyFiles": [
+    "releases/v0.0.5.json"
+  ]
+}

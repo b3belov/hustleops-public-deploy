@@ -116,7 +116,7 @@ validate_digest_ref() {
   local name="$1"
   local value="${!name}"
 
-  [[ "$value" =~ @sha256:[0-9a-fA-F]{64}$ ]] || fail "$name must be pinned by sha256 digest."
+  [[ "$value" =~ :[0-9]+\.[0-9]+\.[0-9]+@sha256:[0-9a-fA-F]{64}$ ]] || fail "$name must include the release version tag and sha256 digest."
 }
 
 validate_cors_origin() {
@@ -241,12 +241,17 @@ function immutableRef(image, imageKey) {
     image?.digest,
     `manifest image ${imageKey}.digest`,
   );
+  const version = requireString(manifest.release?.version, 'release.version');
 
   if (!/^sha256:[a-f0-9]{64}$/i.test(digest)) {
     fail(`Manifest image ${imageKey} digest must be sha256.`);
   }
 
-  return `${ref}@${digest}`;
+  if (Array.isArray(image?.tags) && !image.tags.includes(version)) {
+    fail(`Manifest image ${imageKey} tags must include ${version}.`);
+  }
+
+  return `${ref}:${version}@${digest}`;
 }
 
 const manifest = readJson(manifestFile, 'release manifest');

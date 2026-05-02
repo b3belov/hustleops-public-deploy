@@ -72,7 +72,13 @@ function requireString(value, field) {
 function immutableRef(image) {
   const ref = requireString(image?.ref, 'images.migration.ref');
   const digest = requireString(image?.digest, 'images.migration.digest');
-  return `${ref}@${digest}`;
+  const version = requireString(manifest.release?.version, 'release.version');
+
+  if (!/^sha256:[a-f0-9]{64}$/i.test(digest)) {
+    fail('images.migration.digest must be sha256.');
+  }
+
+  return `${ref}:${version}@${digest}`;
 }
 
 const manifest = JSON.parse(fs.readFileSync(manifestFile, 'utf8'));

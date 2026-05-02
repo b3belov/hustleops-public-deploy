@@ -3,45 +3,44 @@
   "release": {
     "tag": "v0.1.1",
     "version": "0.1.1",
-    "commitSha": "2777278c1275038fd1dd1afabbdc15f17e1536f0",
-    "releasedAt": "2026-05-01T19:52:14Z",
-    "url": "https://github.com/HustleOps/HustleOps/releases/tag/v0.1.1",
-    "sourceUrl": "https://github.com/HustleOps/HustleOps"
+    "commitSha": "84a3a3a778b063b0224116c05e29b4fb58127c33",
+    "releasedAt": "2026-05-02T08:53:53Z",
+    "url": "https://github.com/HustleOps/HustleOps/releases/tag/v0.1.1"
   },
   "images": {
     "backend": {
-      "name": "hustleops-backend",
-      "ref": "ghcr.io/hustleops/hustleops-backend",
+      "name": "hustleops-public-backend",
+      "ref": "ghcr.io/hustleops/hustleops-public-backend",
       "tags": [
         "0.1.1",
         "0.1",
         "latest"
       ],
-      "digest": "sha256:da2b3b06485f0bd01c82dae00ab795eb8e68f619f13139379c92c0c128f8d22c"
+      "digest": "sha256:2feb907474bfbcb7102508ffdfda18539aa422f02f18b372ea423b6b2afd4193"
     },
     "frontend": {
-      "name": "hustleops-frontend",
-      "ref": "ghcr.io/hustleops/hustleops-frontend",
+      "name": "hustleops-public-frontend",
+      "ref": "ghcr.io/hustleops/hustleops-public-frontend",
       "tags": [
         "0.1.1",
         "0.1",
         "latest"
       ],
-      "digest": "sha256:8a2ddfb1b8624a5e4cbb6f07493968f2da0f4c3e58e1343c7c1df76a490880f5"
+      "digest": "sha256:63ff8b330dd4e176686f79456c090443c85d95c440ad45abeaee0e25388cd393"
     },
     "migration": {
-      "name": "hustleops-backend-migrate",
-      "ref": "ghcr.io/hustleops/hustleops-backend-migrate",
+      "name": "hustleops-public-backend-migrate",
+      "ref": "ghcr.io/hustleops/hustleops-public-backend-migrate",
       "tags": [
         "0.1.1",
         "0.1",
         "latest"
       ],
-      "digest": "sha256:d7e866a1b3646caa815e73b43a591342da66b3d51a39244c108b04758caaedda"
+      "digest": "sha256:155b8302172367bd4ca0ef6e878a623913913dcbc75c445358f397c9de891966"
     }
   },
   "deploy": {
-    "trigger": "release-v0.1.1-2777278c1275",
+    "trigger": "release-v0.1.1-84a3a3a778b0",
     "publicPorts": [
       80,
       5678,
@@ -121,7 +120,7 @@
         "releaseTag": "v0.1.1",
         "releaseVersion": "0.1.1",
         "releaseUrl": "https://github.com/HustleOps/HustleOps/releases/tag/v0.1.1",
-        "deployTrigger": "release-v0.1.1-2777278c1275",
+        "deployTrigger": "release-v0.1.1-84a3a3a778b0",
         "immutableReleasePath": "releases/v0.1.1.json",
         "verificationPath": "release-verification.json",
         "manifestPath": "release-manifest.json"

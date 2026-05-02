@@ -2,11 +2,12 @@
 
 This repository contains the Docker Compose deployment bundle for HustleOps.
 It uses published container images and does not require application source code or local image builds.
+The HustleOps GHCR images are public and can be pulled without signing in.
 
 ## Requirements
 
 - Docker Engine with Docker Compose v2
-- Access to the published HustleOps GHCR images
+- Network access to `ghcr.io`
 - `cosign` for release image signature verification
 - `openssl` for generating deployment secrets
 
@@ -17,45 +18,39 @@ It uses published container images and does not require application source code 
 
 ## Setup
 
-1. Authenticate to GHCR:
-
-   ```bash
-   echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USERNAME" --password-stdin
-   ```
-
-2. Create the deployment environment file:
+1. Create the deployment environment file:
 
    ```bash
    cp .env.example .env
    ```
 
-3. Replace every `change_me` value in `.env`. The comments in `.env.example` include generation commands for required secrets.
+2. Replace every `change_me` value in `.env`. The comments in `.env.example` include generation commands for required secrets.
 
-4. Run preflight checks:
+3. Run preflight checks:
 
    ```bash
    ./scripts/preflight.sh --env-file .env
    ```
 
-5. Capture a PostgreSQL backup:
+4. Capture a PostgreSQL backup:
 
    ```bash
    ./scripts/backup-postgres.sh --env-file .env
    ```
 
-6. Apply database migrations:
+5. Apply database migrations:
 
    ```bash
    ./scripts/run-migration.sh --env-file .env --timeout-seconds 600
    ```
 
-7. Create the first admin account when deploying into an empty database:
+6. Create the first admin account when deploying into an empty database:
 
    ```bash
    docker compose --env-file .env -f docker-compose.prod.yml --profile bootstrap run --rm backend-bootstrap
    ```
 
-8. Start the application:
+7. Start the application:
 
    ```bash
    docker compose --env-file .env -f docker-compose.prod.yml up -d backend frontend nginx

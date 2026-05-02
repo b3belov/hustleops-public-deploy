@@ -4,15 +4,20 @@
     "README.md",
     ".env.example",
     "docker-compose.prod.yml",
+    "scripts/preflight.sh",
+    "scripts/backup-postgres.sh",
+    "scripts/run-migration.sh",
     "data/postgres/.gitkeep",
     "data/n8n/postgres/.gitkeep",
     "nginx/nginx.conf",
+    "nginx/nginx.ancillary.conf",
     "nginx/security-headers.conf",
     "release-manifest.json",
+    "release-verification.json",
     "deployment/release-trigger.txt",
     "data/uploads/.gitkeep"
   ],
   "appendOnlyFiles": [
-    "releases/v0.0.5.json"
+    "releases/v0.1.1.json"
   ]
 }

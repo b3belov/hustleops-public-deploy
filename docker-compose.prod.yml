@@ -1,9 +1,28 @@
 # Managed by HustleOps release automation.
-# Backend and frontend use published runtime images.
-# nginx uses the stock image and mounts the checked-in config in this repository.
+# Backend, frontend, and migration services use published runtime images.
+# nginx uses unprivileged runtime images and mounts the checked-in config in this repository.
+
+x-runtime-hardening: &runtime-hardening
+  read_only: true
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+
+x-node-runtime-hardening: &node-runtime-hardening
+  <<: *runtime-hardening
+  tmpfs:
+    - /tmp:rw,noexec,nosuid,nodev,size=64m
+
+x-nginx-runtime-hardening: &nginx-runtime-hardening
+  <<: *runtime-hardening
+  tmpfs:
+    - /tmp:rw,noexec,nosuid,nodev,size=32m,uid=101,gid=101,mode=1777
+    - /var/cache/nginx:rw,noexec,nosuid,nodev,size=32m,uid=101,gid=101,mode=0755
+    - /run:rw,noexec,nosuid,nodev,size=4m,uid=101,gid=101,mode=0755
 
 x-n8n-common: &n8n-common
-  image: docker.n8n.io/n8nio/n8n:2.13.4
+  image: docker.n8n.io/n8nio/n8n:2.13.4@sha256:ab216dc8d10d1940a07f41f04355011ab03d0dec1fc03d62d5db3fc1bad815f5
   restart: unless-stopped
   environment: &n8n-env
     DB_TYPE: postgresdb
@@ -29,7 +48,7 @@ x-n8n-common: &n8n-common
 
 services:
   postgres:
-    image: postgres:18-alpine
+    image: postgres:18-alpine@sha256:54451ecb8ab38c24c3ec123f2fd501303a3a1856a5c66e98cecf2460d5e1e9d7
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
@@ -48,7 +67,7 @@ services:
       - app-network
 
   redis:
-    image: redis:8-alpine
+    image: redis:8-alpine@sha256:c5e375abb885e6b2021c0377879e4890bf76f9065b8922ffc113f2b226b9fc17
     restart: unless-stopped
     command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD} --maxmemory 256mb --maxmemory-policy allkeys-lru
     volumes:
@@ -62,7 +81,7 @@ services:
       - app-network
 
   opensearch:
-    image: opensearchproject/opensearch:2
+    image: opensearchproject/opensearch:2@sha256:3a73623acf3cdd566ad7d0c6c06190a528e6b8a5d54fe1f4327258e32bd8df26
     restart: unless-stopped
     environment:
       cluster.name: hustleops-cluster
@@ -81,7 +100,11 @@ services:
       # Keep search indices across redeploys and rollbacks.
       - opensearch_data:/usr/share/opensearch/data
     healthcheck:
-      test: ["CMD-SHELL", "curl -sk -u admin:$$OPENSEARCH_INITIAL_ADMIN_PASSWORD https://localhost:9200/_cluster/health | grep -q '\"status\"'"]
+      test:
+        [
+          "CMD-SHELL",
+          'curl -sk -u admin:$$OPENSEARCH_INITIAL_ADMIN_PASSWORD https://localhost:9200/_cluster/health | grep -q ''"status"''',
+        ]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -90,7 +113,7 @@ services:
       - shared-network
 
   opensearch-dashboards:
-    image: opensearchproject/opensearch-dashboards:2
+    image: opensearchproject/opensearch-dashboards:2@sha256:a91b1f377e724b9759e8af7bab1c2bdc19cbb44542bdc6bef9e4f4e03e8613f1
     restart: unless-stopped
     environment:
       OPENSEARCH_HOSTS: '["https://opensearch:9200"]'
@@ -104,9 +127,12 @@ services:
       - shared-network
 
   backend:
+    <<: *node-runtime-hardening
     image: ${HUSTLEOPS_BACKEND_IMAGE}
+    platform: linux/amd64
     restart: unless-stopped
     environment:
+      HOME: /tmp
       NODE_ENV: production
       PORT: 3000
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public&connection_limit=15&pool_timeout=30
@@ -119,9 +145,9 @@ services:
       JWT_REFRESH_EXPIRY: 7d
       CORS_ORIGIN: ${CORS_ORIGIN}
       TWO_FACTOR_ENCRYPTION_KEY: ${TWO_FACTOR_ENCRYPTION_KEY}
-      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD}
       N8N_WEBHOOK_URL: http://n8n:5678/webhook
       LOG_ERROR_STACK: "false"
+      LOG_FILE_FORCE_DISABLED: ${HUSTLEOPS_FORCE_STDOUT_LOGGING:-true}
       OPENSEARCH_NODE: https://opensearch:9200
       OPENSEARCH_USERNAME: admin
       OPENSEARCH_PASSWORD: ${OPENSEARCH_ADMIN_PASSWORD}
@@ -130,7 +156,7 @@ services:
       io.hustleops.release.trigger: "${HUSTLEOPS_RELEASE_TRIGGER}"
     volumes:
       # Keep user-uploaded chat files and screenshots on the host filesystem.
-      - ./data/uploads:/app/uploads
+      - ./data/uploads:/app/uploads:rw
     depends_on:
       postgres:
         condition: service_healthy
@@ -139,7 +165,13 @@ services:
       opensearch:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3000/health/live"]
+      test:
+        [
+          "CMD",
+          "/nodejs/bin/node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/health/live').then((response) => { if (!response.ok) process.exit(1); }).catch(() => process.exit(1))",
+        ]
       interval: 15s
       timeout: 5s
       retries: 3
@@ -148,14 +180,58 @@ services:
       - app-network
       - shared-network
 
+  backend-migrate:
+    <<: *node-runtime-hardening
+    image: ${HUSTLEOPS_BACKEND_MIGRATION_IMAGE}
+    platform: linux/amd64
+    restart: "no"
+    environment:
+      HOME: /tmp
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public&connection_limit=15&pool_timeout=30
+    labels:
+      io.hustleops.release.tag: "${HUSTLEOPS_RELEASE_TAG}"
+      io.hustleops.release.trigger: "${HUSTLEOPS_RELEASE_TRIGGER}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    profiles:
+      - migration
+    networks:
+      - app-network
+
+  backend-bootstrap:
+    <<: *node-runtime-hardening
+    image: ${HUSTLEOPS_BACKEND_MIGRATION_IMAGE}
+    platform: linux/amd64
+    entrypoint: ["node"]
+    command: ["dist/prisma/bootstrap.js"]
+    restart: "no"
+    environment:
+      HOME: /tmp
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public&connection_limit=15&pool_timeout=30
+      BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD}
+    labels:
+      io.hustleops.release.tag: "${HUSTLEOPS_RELEASE_TAG}"
+      io.hustleops.release.trigger: "${HUSTLEOPS_RELEASE_TRIGGER}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    profiles:
+      - bootstrap
+    networks:
+      - app-network
+
   frontend:
+    <<: *nginx-runtime-hardening
     image: ${HUSTLEOPS_FRONTEND_IMAGE}
+    platform: linux/amd64
     restart: unless-stopped
     labels:
       io.hustleops.release.tag: "${HUSTLEOPS_RELEASE_TAG}"
       io.hustleops.release.trigger: "${HUSTLEOPS_RELEASE_TRIGGER}"
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/healthz"]
+      test: ["CMD", "nginx", "-t"]
       interval: 15s
       timeout: 5s
       retries: 3
@@ -164,34 +240,64 @@ services:
       - app-network
 
   nginx:
-    image: nginx:1.27-alpine
+    <<: *nginx-runtime-hardening
+    image: nginxinc/nginx-unprivileged:1.27-alpine@sha256:65e3e85dbaed8ba248841d9d58a899b6197106c23cb0ff1a132b7bfe0547e4c0
     restart: unless-stopped
     labels:
       io.hustleops.release.tag: "${HUSTLEOPS_RELEASE_TAG}"
       io.hustleops.release.trigger: "${HUSTLEOPS_RELEASE_TRIGGER}"
+    healthcheck:
+      test: ["CMD", "nginx", "-t"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./nginx/security-headers.conf:/etc/nginx/security-headers.conf:ro
     ports:
-      - "80:80"
-      - "5678:5678"
-      - "5601:5601"
+      - "80:8080"
     depends_on:
       backend:
         condition: service_healthy
       frontend:
         condition: service_healthy
+    networks:
+      - edge-network
+      - app-network
+
+  nginx-ancillary:
+    <<: *nginx-runtime-hardening
+    image: nginxinc/nginx-unprivileged:1.27-alpine@sha256:65e3e85dbaed8ba248841d9d58a899b6197106c23cb0ff1a132b7bfe0547e4c0
+    restart: unless-stopped
+    profiles:
+      - ancillary-public
+    labels:
+      io.hustleops.release.tag: "${HUSTLEOPS_RELEASE_TAG}"
+      io.hustleops.release.trigger: "${HUSTLEOPS_RELEASE_TRIGGER}"
+    healthcheck:
+      test: ["CMD", "nginx", "-t"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    volumes:
+      - ./nginx/nginx.ancillary.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/security-headers.conf:/etc/nginx/security-headers.conf:ro
+    ports:
+      - "5678:5678"
+      - "5601:5601"
+    depends_on:
       n8n:
         condition: service_started
       opensearch-dashboards:
         condition: service_started
     networks:
       - edge-network
-      - app-network
       - shared-network
 
   n8n-postgres:
-    image: postgres:18-alpine
+    image: postgres:18-alpine@sha256:54451ecb8ab38c24c3ec123f2fd501303a3a1856a5c66e98cecf2460d5e1e9d7
     restart: unless-stopped
     environment:
       POSTGRES_DB: n8n
@@ -209,7 +315,7 @@ services:
       - n8n-network
 
   n8n-redis:
-    image: redis:8-alpine
+    image: redis:8-alpine@sha256:c5e375abb885e6b2021c0377879e4890bf76f9065b8922ffc113f2b226b9fc17
     restart: unless-stopped
     command: redis-server --requirepass ${N8N_REDIS_PASSWORD}
     volumes:
@@ -248,7 +354,7 @@ services:
       - n8n-network
 
   task-runner-main:
-    image: n8nio/runners:2.13.4
+    image: n8nio/runners:2.13.4@sha256:9600fcd4be2bb035a09258a30415b0571a654ac25bb2bcfa78bace3e9522b4e2
     restart: unless-stopped
     environment:
       N8N_RUNNERS_AUTH_TOKEN: ${N8N_RUNNERS_AUTH_TOKEN}
@@ -260,7 +366,7 @@ services:
       - n8n-network
 
   task-runner-worker:
-    image: n8nio/runners:2.13.4
+    image: n8nio/runners:2.13.4@sha256:9600fcd4be2bb035a09258a30415b0571a654ac25bb2bcfa78bace3e9522b4e2
     restart: unless-stopped
     environment:
       N8N_RUNNERS_AUTH_TOKEN: ${N8N_RUNNERS_AUTH_TOKEN}

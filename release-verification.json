@@ -1,0 +1,85 @@
+{
+  "schemaVersion": 1,
+  "release": {
+    "tag": "v0.1.1",
+    "version": "0.1.1",
+    "commitSha": "2777278c1275038fd1dd1afabbdc15f17e1536f0",
+    "releasedAt": "2026-05-01T19:52:14Z",
+    "url": "https://github.com/HustleOps/HustleOps/releases/tag/v0.1.1",
+    "sourceUrl": "https://github.com/HustleOps/HustleOps"
+  },
+  "trustPolicy": {
+    "provider": "github-actions",
+    "issuer": "https://token.actions.githubusercontent.com",
+    "certificateIdentity": "https://github.com/HustleOps/HustleOps/.github/workflows/release.yml@refs/tags/v0.1.1",
+    "requiredArtifacts": [
+      "signature",
+      "provenance",
+      "sbom"
+    ],
+    "sbomFormat": "spdx-json",
+    "provenanceMode": "max"
+  },
+  "images": {
+    "backend": {
+      "name": "hustleops-backend",
+      "digest": "sha256:da2b3b06485f0bd01c82dae00ab795eb8e68f619f13139379c92c0c128f8d22c",
+      "immutableRef": "ghcr.io/hustleops/hustleops-backend@sha256:da2b3b06485f0bd01c82dae00ab795eb8e68f619f13139379c92c0c128f8d22c",
+      "verification": {
+        "signature": {
+          "provider": "github-actions",
+          "issuer": "https://token.actions.githubusercontent.com",
+          "certificateIdentity": "https://github.com/HustleOps/HustleOps/.github/workflows/release.yml@refs/tags/v0.1.1"
+        },
+        "provenance": {
+          "provider": "github-actions",
+          "mode": "max"
+        },
+        "sbom": {
+          "provider": "github-actions",
+          "format": "spdx-json"
+        }
+      }
+    },
+    "frontend": {
+      "name": "hustleops-frontend",
+      "digest": "sha256:8a2ddfb1b8624a5e4cbb6f07493968f2da0f4c3e58e1343c7c1df76a490880f5",
+      "immutableRef": "ghcr.io/hustleops/hustleops-frontend@sha256:8a2ddfb1b8624a5e4cbb6f07493968f2da0f4c3e58e1343c7c1df76a490880f5",
+      "verification": {
+        "signature": {
+          "provider": "github-actions",
+          "issuer": "https://token.actions.githubusercontent.com",
+          "certificateIdentity": "https://github.com/HustleOps/HustleOps/.github/workflows/release.yml@refs/tags/v0.1.1"
+        },
+        "provenance": {
+          "provider": "github-actions",
+          "mode": "max"
+        },
+        "sbom": {
+          "provider": "github-actions",
+          "format": "spdx-json"
+        }
+      }
+    },
+    "migration": {
+      "name": "hustleops-backend-migrate",
+      "digest": "sha256:d7e866a1b3646caa815e73b43a591342da66b3d51a39244c108b04758caaedda",
+      "immutableRef": "ghcr.io/hustleops/hustleops-backend-migrate@sha256:d7e866a1b3646caa815e73b43a591342da66b3d51a39244c108b04758caaedda",
+      "verification": {
+        "signature": {
+          "provider": "github-actions",
+          "issuer": "https://token.actions.githubusercontent.com",
+          "certificateIdentity": "https://github.com/HustleOps/HustleOps/.github/workflows/release.yml@refs/tags/v0.1.1"
+        },
+        "provenance": {
+          "provider": "github-actions",
+          "mode": "max"
+        },
+        "sbom": {
+          "provider": "github-actions",
+          "format": "spdx-json"
+        }
+      }
+    }
+  }
+}

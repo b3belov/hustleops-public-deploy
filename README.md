@@ -26,31 +26,33 @@ The HustleOps GHCR images are public and can be pulled without signing in.
 
 2. Replace every `change_me` value in `.env`. The comments in `.env.example` include generation commands for required secrets.
 
-3. Run preflight checks:
+3. Confirm the host directories under `data/` and `logs/` are writable by the matching containers before first start. Logs continue to use Docker stdout by default; use `logs/<service>/` only when file logging is intentionally enabled and shipped off-host.
+
+4. Run preflight checks:
 
    ```bash
    ./scripts/preflight.sh --env-file .env
    ```
 
-4. Capture a PostgreSQL backup:
+5. Capture a PostgreSQL backup:
 
    ```bash
    ./scripts/backup-postgres.sh --env-file .env
    ```
 
-5. Apply database migrations:
+6. Apply database migrations:
 
    ```bash
    ./scripts/run-migration.sh --env-file .env --timeout-seconds 600
    ```
 
-6. Create the first admin account when deploying into an empty database:
+7. Create the first admin account when deploying into an empty database:
 
    ```bash
    docker compose --env-file .env -f docker-compose.prod.yml --profile bootstrap run --rm backend-bootstrap
    ```
 
-7. Start the application:
+8. Start the application:
 
    ```bash
    docker compose --env-file .env -f docker-compose.prod.yml up -d backend frontend nginx

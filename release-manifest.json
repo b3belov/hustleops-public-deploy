@@ -3,8 +3,8 @@
   "release": {
     "tag": "v0.1.1",
     "version": "0.1.1",
-    "commitSha": "19069b4eb86ee442b51c4307b11c099179cdd722",
-    "releasedAt": "2026-05-02T09:23:20Z",
+    "commitSha": "6f3bc0507ca833f69ac8b8ac5a5adfff01cd935d",
+    "releasedAt": "2026-05-02T21:26:08Z",
     "url": "https://github.com/HustleOps/HustleOps/releases/tag/v0.1.1"
   },
   "images": {
@@ -16,7 +16,7 @@
         "0.1",
         "latest"
       ],
-      "digest": "sha256:d27e108b79daf7c2851ff7cce6eb5f61d373a08511f0b8be16ca635b191d814b"
+      "digest": "sha256:0017e7cd11605d3ee7f6d7986896182f1d20e68f0ae00d3f3e028a0534a7f86d"
     },
     "frontend": {
       "name": "hustleops-public-frontend",
@@ -26,7 +26,7 @@
         "0.1",
         "latest"
       ],
-      "digest": "sha256:3d5905527943b369158c69b82434b3df1a305da14fa4edccd0ca46dca1b547d2"
+      "digest": "sha256:07468204bd0b3f75c069a8f25054727fbd3aa99ad488533f14b89e0fa3a1831f"
     },
     "migration": {
       "name": "hustleops-public-backend-migrate",
@@ -36,11 +36,11 @@
         "0.1",
         "latest"
       ],
-      "digest": "sha256:d1f0b208cb14c512a8bf7ca65b272f617b35d6a4bc076cb446ce8de7ee1bd7d4"
+      "digest": "sha256:6d319090f6c6867e9dce144d9dd0ce7f582b429e371d03c1ed063c59d093595c"
     }
   },
   "deploy": {
-    "trigger": "release-v0.1.1-19069b4eb86e",
+    "trigger": "release-v0.1.1-6f3bc0507ca8",
     "publicPorts": [
       80,
       5678,
@@ -120,7 +120,7 @@
         "releaseTag": "v0.1.1",
         "releaseVersion": "0.1.1",
         "releaseUrl": "https://github.com/HustleOps/HustleOps/releases/tag/v0.1.1",
-        "deployTrigger": "release-v0.1.1-19069b4eb86e",
+        "deployTrigger": "release-v0.1.1-6f3bc0507ca8",
         "immutableReleasePath": "releases/v0.1.1.json",
         "verificationPath": "release-verification.json",
         "manifestPath": "release-manifest.json"

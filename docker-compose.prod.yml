@@ -58,6 +58,7 @@ services:
     volumes:
       # Keep main HustleOps postgres data on the host filesystem.
       - ./data/postgres:/var/lib/postgresql/data
+      - ./logs/postgres:/var/log/hustleops:rw
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
@@ -71,7 +72,8 @@ services:
     restart: unless-stopped
     command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD} --maxmemory 256mb --maxmemory-policy allkeys-lru
     volumes:
-      - redis_data:/data
+      - ./data/redis:/data
+      - ./logs/redis:/var/log/hustleops:rw
     healthcheck:
       test: ["CMD-SHELL", "redis-cli -a ${REDIS_PASSWORD} ping"]
       interval: 10s
@@ -98,7 +100,8 @@ services:
         hard: 65536
     volumes:
       # Keep search indices across redeploys and rollbacks.
-      - opensearch_data:/usr/share/opensearch/data
+      - ./data/opensearch:/usr/share/opensearch/data
+      - ./logs/opensearch:/var/log/hustleops:rw
     healthcheck:
       test:
         [
@@ -123,6 +126,9 @@ services:
     depends_on:
       opensearch:
         condition: service_healthy
+    volumes:
+      - ./data/opensearch-dashboards:/usr/share/opensearch-dashboards/data
+      - ./logs/opensearch-dashboards:/var/log/hustleops:rw
     networks:
       - shared-network
 
@@ -157,6 +163,7 @@ services:
     volumes:
       # Keep user-uploaded chat files and screenshots on the host filesystem.
       - ./data/uploads:/app/uploads:rw
+      - ./logs/backend:/app/logs:rw
     depends_on:
       postgres:
         condition: service_healthy
@@ -194,6 +201,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    volumes:
+      - ./logs/backend-migrate:/app/logs:rw
     profiles:
       - migration
     networks:
@@ -217,6 +226,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    volumes:
+      - ./logs/backend-bootstrap:/app/logs:rw
     profiles:
       - bootstrap
     networks:
@@ -236,6 +247,8 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+    volumes:
+      - ./logs/frontend:/var/log/hustleops:rw
     networks:
       - app-network
 
@@ -255,6 +268,7 @@ services:
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./nginx/security-headers.conf:/etc/nginx/security-headers.conf:ro
+      - ./logs/nginx:/var/log/hustleops:rw
     ports:
       - "80:8080"
     depends_on:
@@ -284,6 +298,7 @@ services:
     volumes:
       - ./nginx/nginx.ancillary.conf:/etc/nginx/nginx.conf:ro
       - ./nginx/security-headers.conf:/etc/nginx/security-headers.conf:ro
+      - ./logs/nginx-ancillary:/var/log/hustleops:rw
     ports:
       - "5678:5678"
       - "5601:5601"
@@ -306,6 +321,7 @@ services:
     volumes:
       # Keep n8n postgres data on the host filesystem.
       - ./data/n8n/postgres:/var/lib/postgresql/data
+      - ./logs/n8n-postgres:/var/log/hustleops:rw
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U n8n"]
       interval: 5s
@@ -320,7 +336,8 @@ services:
     command: redis-server --requirepass ${N8N_REDIS_PASSWORD}
     volumes:
       # Keep n8n queue broker state across restarts.
-      - n8n_redis_data:/data
+      - ./data/n8n/redis:/data
+      - ./logs/n8n-redis:/var/log/hustleops:rw
     healthcheck:
       test: ["CMD-SHELL", "redis-cli -a ${N8N_REDIS_PASSWORD} ping"]
       interval: 5s
@@ -335,7 +352,8 @@ services:
       <<: *n8n-env
     volumes:
       # Keep workflows, credentials, and execution metadata across redeploys.
-      - n8n_data:/home/node/.n8n
+      - ./data/n8n/app:/home/node/.n8n
+      - ./logs/n8n:/var/log/hustleops:rw
     networks:
       - n8n-network
       - shared-network
@@ -350,6 +368,8 @@ services:
         condition: service_healthy
       n8n:
         condition: service_started
+    volumes:
+      - ./logs/n8n-worker:/var/log/hustleops:rw
     networks:
       - n8n-network
 
@@ -362,6 +382,8 @@ services:
     depends_on:
       n8n:
         condition: service_started
+    volumes:
+      - ./logs/task-runner-main:/var/log/hustleops:rw
     networks:
       - n8n-network
 
@@ -374,14 +396,10 @@ services:
     depends_on:
       n8n-worker:
         condition: service_started
+    volumes:
+      - ./logs/task-runner-worker:/var/log/hustleops:rw
     networks:
       - n8n-network
-
-volumes:
-  redis_data:
-  opensearch_data:
-  n8n_data:
-  n8n_redis_data:
 
 networks:
   edge-network:

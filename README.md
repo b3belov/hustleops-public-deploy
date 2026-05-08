@@ -28,35 +28,42 @@ The HustleOps GHCR images are public and can be pulled without signing in.
 
 3. Confirm the host directories under `data/` and `logs/` are writable by the matching containers before first start. Logs continue to use Docker stdout by default; use `logs/<service>/` only when file logging is intentionally enabled and shipped off-host.
 
-4. Run preflight checks:
+4. Run the setup flow:
 
    ```bash
-   ./scripts/preflight.sh --env-file .env
+   ./scripts/deploy.sh setup --env-file .env
    ```
 
-5. Capture a PostgreSQL backup:
+   The setup flow validates required tools, verifies release images, captures a PostgreSQL backup, applies migrations, runs the initial-admin bootstrap, and starts the core application services.
 
-   ```bash
-   ./scripts/backup-postgres.sh --env-file .env
-   ```
+## Update
 
-6. Apply database migrations:
+After pulling a newer public deploy repository release, run:
 
-   ```bash
-   ./scripts/run-migration.sh --env-file .env --timeout-seconds 600
-   ```
+```bash
+./scripts/deploy.sh update --env-file .env
+```
 
-7. Create the first admin account when deploying into an empty database:
+The update flow syncs release-managed image and metadata values from `.env.example` into `.env`, runs preflight checks, captures a PostgreSQL backup, applies pending migrations, runs the idempotent bootstrap contract, recreates core application services, and prints service status. Operator-provided secrets in `.env` are preserved.
 
-   ```bash
-   docker compose --env-file .env -f docker-compose.prod.yml --profile bootstrap run --rm backend-bootstrap
-   ```
+Use `--with-ancillary` only when n8n and OpenSearch Dashboards should be exposed publicly.
 
-8. Start the application:
+## Manual Operations
 
-   ```bash
-   docker compose --env-file .env -f docker-compose.prod.yml up -d backend frontend nginx
-   ```
+The unified deploy script calls these lower-level scripts internally. Operators can still run them directly when diagnosing a failed rollout:
+
+```bash
+./scripts/preflight.sh --env-file .env
+./scripts/backup-postgres.sh --env-file .env
+./scripts/run-migration.sh --env-file .env --timeout-seconds 600
+```
+
+Manual bootstrap and service start commands:
+
+```bash
+docker compose --env-file .env -f docker-compose.prod.yml --profile bootstrap run --rm backend-bootstrap
+docker compose --env-file .env -f docker-compose.prod.yml up -d backend frontend nginx
+```
 
 ## Optional Services
 

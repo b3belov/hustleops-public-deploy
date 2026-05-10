@@ -13,11 +13,6 @@ The HustleOps GHCR images are public and can be pulled without signing in.
 - `openssl` for generating deployment secrets
 - GNU `timeout` for non-dry-run migration/update flows. On macOS, install with `brew install coreutils` and ensure `timeout` is on `PATH`.
 
-## Release
-
-- Tag: `v0.2.1`
-- Version: `0.2.1`
-
 ## Setup
 
 1. Create the deployment environment file:
@@ -46,7 +41,7 @@ Repository maintainers can update this deployment bundle from a signed release c
 2. Keep the default contract ref for the latest release, or enter a specific `ghcr.io/hustleops/hustleops-release-contract:<version>` ref.
 3. Review and merge the generated update PR after CI passes.
 
-The workflow verifies the contract signature before reading the JSON payload, cross-checks the verified payload trust fields, verifies runtime image signatures, updates `.env.example`, records root and immutable release metadata, and validates the deploy scripts, Compose files, and nginx configs.
+The workflow verifies the contract signature before reading the JSON payload, cross-checks the verified payload trust fields, verifies runtime image signatures, updates `.env.example`, records root and immutable release metadata, and validates the deploy scripts, Compose files, and nginx configs. After the generated update PR is merged to `main`, the `Publish Public Release` workflow creates or updates the matching public deploy GitHub Release and attaches the public contract metadata.
 
 After pulling a newer public deploy repository release, run:
 

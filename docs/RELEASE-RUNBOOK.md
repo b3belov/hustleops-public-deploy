@@ -9,7 +9,8 @@
 
 1. Runtime image references for backend and frontend.
 2. The deploy payload files in this repository.
-3. Release metadata such as `release-manifest.json`, `deployment/release-trigger.txt`, and `releases/<tag>.json` when automation is enabled.
+3. Release metadata such as `release-manifest.json`, `deployment/release-trigger.txt`, and `releases/<tag>.json`.
+4. A public deploy GitHub Release after the update PR lands on `main`, with `releases/<tag>.json` attached as the public contract.
 
 ## Validation
 
@@ -30,5 +31,5 @@ docker compose --env-file .env -f docker-compose.prod.yml config
 ## Rollback
 
 - Roll back to a prior release by restoring the earlier image references and release metadata.
-- If your release automation writes `releases/<tag>.json`, use that file as the immutable record for the previous rollout.
+- Use `releases/<tag>.json`, or the matching public deploy GitHub Release asset, as the immutable record for the previous rollout.
 - Re-run validation before bringing the stack back up.

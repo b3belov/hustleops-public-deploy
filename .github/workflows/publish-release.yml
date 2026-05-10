@@ -1,0 +1,81 @@
+name: Publish Public Release
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - release-manifest.json
+      - release-verification.json
+      - deployment/release-trigger.txt
+      - releases/*.json
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-public-release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: "24"
+
+jobs:
+  publish-release:
+    name: Create Or Update Public Deploy Release
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Validate release metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check scripts/build-public-release-notes.mjs
+          node scripts/make-ci-env.mjs --output .hustleops/ci.env
+          node scripts/validate-release-metadata.mjs --env-file .hustleops/ci.env
+
+      - name: Build public release notes
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/build-public-release-notes.mjs \
+            --output .hustleops/public-release-notes.md \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Publish public deploy release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          RELEASE_TITLE: ${{ steps.release.outputs.title }}
+          RELEASE_RECORD_FILE: ${{ steps.release.outputs.release_record_file }}
+        run: |
+          set -euo pipefail
+
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release edit "$RELEASE_TAG" \
+              --title "$RELEASE_TITLE" \
+              --notes-file .hustleops/public-release-notes.md
+          else
+            gh release create "$RELEASE_TAG" \
+              --target "$GITHUB_SHA" \
+              --title "$RELEASE_TITLE" \
+              --notes-file .hustleops/public-release-notes.md
+          fi
+
+          gh release upload "$RELEASE_TAG" \
+            release-manifest.json \
+            release-verification.json \
+            "${RELEASE_RECORD_FILE}#public-release-contract-${RELEASE_TAG}.json" \
+            --clobber

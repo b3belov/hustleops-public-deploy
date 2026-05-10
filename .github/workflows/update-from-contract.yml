@@ -115,6 +115,7 @@ jobs:
           set -euo pipefail
           bash -n scripts/preflight.sh scripts/backup-postgres.sh scripts/run-migration.sh scripts/deploy.sh scripts/validate-nginx.sh
           shellcheck scripts/preflight.sh scripts/backup-postgres.sh scripts/run-migration.sh scripts/deploy.sh scripts/validate-nginx.sh
+          node --check scripts/build-public-release-notes.mjs
           node --check scripts/update-from-contract.mjs
           node --check scripts/make-ci-env.mjs
           node --check scripts/validate-release-metadata.mjs
@@ -123,6 +124,7 @@ jobs:
             --workdir /repo \
             rhysd/actionlint:1.7.7
           node scripts/make-ci-env.mjs --output .hustleops/ci.env
+          node --test tests/*.test.mjs
           node scripts/validate-release-metadata.mjs \
             --env-file .hustleops/ci.env \
             --signature-plan-file .hustleops/image-signatures.tsv

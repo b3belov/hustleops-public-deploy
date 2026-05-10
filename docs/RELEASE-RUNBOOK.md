@@ -3,14 +3,18 @@
 ## Source Of Truth
 
 - The application source repository owns application code, image publication, and the canonical release handoff contract.
-- This public repository owns the runtime deployment payload: `docker-compose.prod.yml`, mounted nginx config files, host-path directory placeholders under `data/`, and future release metadata.
+- This public repository owns the runtime deployment payload: `docker-compose.prod.yml`, mounted nginx config files, host-path directory placeholders under `data/`, and public deploy releases tagged independently as `public-deploy-vX.Y.Z`.
 
 ## What A Release Updates
 
 1. Runtime image references for backend and frontend.
 2. The deploy payload files in this repository.
 3. Release metadata such as `release-manifest.json`, `deployment/release-trigger.txt`, and `releases/<tag>.json`.
-4. A public deploy GitHub Release after the update PR lands on `main`, with `releases/<tag>.json` attached as the public contract.
+4. A public deploy GitHub Release after the update PR lands on `main`, with `releases/<tag>.json` attached as the source app contract. Direct repository changes also produce a new public deploy release when they land on `main`.
+
+The public deploy release version is not the application version. For example,
+`public-deploy-v0.1.3` can package source app release `v0.2.4`, and a later
+`public-deploy-v0.1.4` can contain only deployment bundle fixes.
 
 ## Validation
 

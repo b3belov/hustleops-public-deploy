@@ -1,0 +1,102 @@
+name: Release Public Deploy
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Public deploy version bump to use"
+        required: true
+        default: patch
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+      force:
+        description: "Publish a new public deploy release even when no files changed since the previous public deploy tag"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-public-deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: "24"
+
+jobs:
+  release-public-deploy:
+    name: Create Public Deploy Release
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Validate release metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check scripts/build-public-release-notes.mjs
+          node --check scripts/build-public-deploy-release.mjs
+          node scripts/make-ci-env.mjs --output .hustleops/ci.env
+          node scripts/validate-release-metadata.mjs --env-file .hustleops/ci.env
+
+      - name: Build public deploy release notes
+        id: release
+        shell: bash
+        env:
+          RELEASE_BUMP: ${{ inputs.bump || 'patch' }}
+          FORCE_RELEASE: ${{ inputs.force || 'false' }}
+        run: |
+          set -euo pipefail
+          git fetch --force --tags origin
+          node scripts/build-public-deploy-release.mjs \
+            --bump "$RELEASE_BUMP" \
+            --force "$FORCE_RELEASE" \
+            --output .hustleops/public-deploy-release-notes.md \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Publish public deploy release
+        if: steps.release.outputs.should_publish == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.release_tag }}
+          RELEASE_TITLE: ${{ steps.release.outputs.release_title }}
+          RELEASE_NOTES_FILE: ${{ steps.release.outputs.release_notes_file }}
+          RELEASE_RECORD_FILE: ${{ steps.release.outputs.release_record_file }}
+          SOURCE_RELEASE_TAG: ${{ steps.release.outputs.source_release_tag }}
+        run: |
+          set -euo pipefail
+          release_assets=(release-manifest.json release-verification.json)
+
+          if [[ -n "$RELEASE_RECORD_FILE" && -f "$RELEASE_RECORD_FILE" ]]; then
+            release_assets+=("${RELEASE_RECORD_FILE}#source-app-contract-${SOURCE_RELEASE_TAG}.json")
+          fi
+
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release edit "$RELEASE_TAG" \
+              --title "$RELEASE_TITLE" \
+              --notes-file "$RELEASE_NOTES_FILE"
+          else
+            gh release create "$RELEASE_TAG" \
+              --target "$GITHUB_SHA" \
+              --title "$RELEASE_TITLE" \
+              --notes-file "$RELEASE_NOTES_FILE"
+          fi
+
+          gh release upload "$RELEASE_TAG" "${release_assets[@]}" --clobber

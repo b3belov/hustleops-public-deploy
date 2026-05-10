@@ -4,26 +4,43 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version tag to publish, for example v1.2.3"
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ inputs.version || github.ref_name }}
   cancel-in-progress: false
 
 env:
   NODE_VERSION: "24"
+  RELEASE_TAG: ${{ inputs.version || github.ref_name }}
 
 jobs:
   verify-release-source:
     name: verify-release-source
     runs-on: ubuntu-24.04
     steps:
-      - name: Checkout repository
+      - name: Check out repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           fetch-depth: 0
+
+      - name: Validate release tag format
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Release tag must match vMAJOR.MINOR.PATCH, for example v1.2.3." >&2
+            exit 1
+          fi
 
       - name: Verify release tag is from main
         shell: bash
@@ -35,9 +52,10 @@ jobs:
     needs:
       - verify-release-source
     steps:
-      - name: Checkout repository
+      - name: Check out repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
+          ref: ${{ env.RELEASE_TAG }}
           fetch-depth: 0
 
       - name: Set up Node.js
@@ -45,12 +63,30 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
 
+      - name: Validate release scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n \
+            scripts/preflight.sh \
+            scripts/backup-postgres.sh \
+            scripts/run-migration.sh \
+            scripts/deploy.sh \
+            scripts/validate-nginx.sh \
+            scripts/ci/verify-release-tag-from-main.sh \
+            scripts/ci/verify-production-approver.sh \
+            scripts/ci/check-actions-pinning.sh
+          node --check scripts/build-public-release-notes.mjs
+          node --check scripts/build-public-deploy-release.mjs
+          node --check scripts/update-from-contract.mjs
+          node --check scripts/make-ci-env.mjs
+          node --check scripts/validate-release-metadata.mjs
+          node --test tests/*.test.mjs
+
       - name: Validate release metadata
         shell: bash
         run: |
           set -euo pipefail
-          node --check scripts/build-public-release-notes.mjs
-          node --check scripts/validate-release-metadata.mjs
           node scripts/make-ci-env.mjs --output .hustleops/ci.env
           node scripts/validate-release-metadata.mjs \
             --env-file .hustleops/ci.env \
@@ -63,18 +99,37 @@ jobs:
           node scripts/build-public-release-notes.mjs \
             --output .hustleops/public-release-notes.md
 
+  approve-production-release:
+    name: approve-production-release
+    runs-on: ubuntu-24.04
+    needs:
+      - build-release
+    if: github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+
+      - name: Verify production release approver
+        shell: bash
+        env:
+          PRODUCTION_RELEASE_APPROVER: ${{ vars.PRODUCTION_RELEASE_APPROVER }}
+        run: bash scripts/ci/verify-production-approver.sh "$PRODUCTION_RELEASE_APPROVER"
+
   publish-release:
     name: publish-release
     runs-on: ubuntu-24.04
     needs:
       - build-release
+      - approve-production-release
+    if: github.event_name == 'workflow_dispatch'
     permissions:
       contents: write
     environment: production
     steps:
-      - name: Checkout repository
+      - name: Check out repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
+          ref: ${{ env.RELEASE_TAG }}
           fetch-depth: 0
 
       - name: Set up Node.js
@@ -95,13 +150,12 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.ref_name }}
-          RELEASE_TITLE: HustleOps Public Deploy ${{ github.ref_name }}
+          RELEASE_TITLE: HustleOps Public Deploy ${{ env.RELEASE_TAG }}
           RELEASE_RECORD_FILE: ${{ steps.release.outputs.release_record_file }}
         run: |
           set -euo pipefail
 
-          release_target="$(git rev-parse "refs/tags/${GITHUB_REF_NAME}^{commit}")"
+          release_target="$(git rev-parse "refs/tags/${RELEASE_TAG}^{commit}")"
           release_assets=(release-manifest.json release-verification.json)
 
           if [[ -n "$RELEASE_RECORD_FILE" && -f "$RELEASE_RECORD_FILE" ]]; then

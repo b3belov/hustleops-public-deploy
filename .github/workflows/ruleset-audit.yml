@@ -9,16 +9,14 @@ permissions:
   contents: read
 
 jobs:
-  ruleset-audit:
-    name: ruleset-audit
+  audit-rulesets:
+    name: audit-rulesets
     runs-on: ubuntu-24.04
     steps:
       - name: List repository rulesets
         shell: bash
         env:
-          GH_TOKEN: ${{ secrets.GH_RULESET_AUDIT_TOKEN || github.token }}
-          REPOSITORY: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          gh api --paginate "/repos/${REPOSITORY}/rulesets" \
-            --jq '.[] | {id, name, target, enforcement, conditions}'
+          gh api "repos/${GITHUB_REPOSITORY}/rulesets" --jq '.[] | {name, target, enforcement, bypass_actors, conditions}'

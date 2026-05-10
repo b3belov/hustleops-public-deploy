@@ -19,10 +19,10 @@ env:
 
 jobs:
   validate:
-    name: Validate CI, Compose, Metadata, And Nginx
+    name: validate
     runs-on: ubuntu-24.04
     steps:
-      - name: Checkout repository
+      - name: Check out repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
       - name: Set up Node.js
@@ -30,7 +30,7 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
 
-      - name: Install shellcheck
+      - name: Install ShellCheck
         run: |
           set -euo pipefail
           sudo apt-get update
@@ -39,8 +39,8 @@ jobs:
       - name: Validate scripts
         run: |
           set -euo pipefail
-          bash -n scripts/preflight.sh scripts/backup-postgres.sh scripts/run-migration.sh scripts/deploy.sh scripts/validate-nginx.sh
-          shellcheck scripts/preflight.sh scripts/backup-postgres.sh scripts/run-migration.sh scripts/deploy.sh scripts/validate-nginx.sh
+          bash -n scripts/preflight.sh scripts/backup-postgres.sh scripts/run-migration.sh scripts/deploy.sh scripts/validate-nginx.sh scripts/ci/verify-production-approver.sh
+          shellcheck scripts/preflight.sh scripts/backup-postgres.sh scripts/run-migration.sh scripts/deploy.sh scripts/validate-nginx.sh scripts/ci/verify-production-approver.sh
           node --check scripts/build-public-release-notes.mjs
           node --check scripts/update-from-contract.mjs
           node --check scripts/make-ci-env.mjs

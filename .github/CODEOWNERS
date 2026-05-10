@@ -1,7 +1,22 @@
+# Advisory operations/security ownership. In solo-maintainer mode this documents
+# review expectations even if GitHub Code Owner review is not yet required.
 * @b3belov
 
+.github/ @b3belov
 .github/workflows/ @b3belov
+.github/CODEOWNERS @b3belov
+.github/pull_request_template.md @b3belov
+
+scripts/ @b3belov
 scripts/ci/ @b3belov
+docker-compose.prod.yml @b3belov
+.env.example @b3belov
+nginx/ @b3belov
+deployment/ @b3belov
+release-manifest.json @b3belov
+release-verification.json @b3belov
+releases/ @b3belov
+
 infra/ @b3belov
 terraform/ @b3belov
 helm/ @b3belov

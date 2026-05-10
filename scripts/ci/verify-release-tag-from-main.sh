@@ -1,10 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-tag_name="${GITHUB_REF_NAME:-}"
+tag_name="${RELEASE_TAG:-${GITHUB_REF_NAME:-}}"
 
 if [[ -z "$tag_name" ]]; then
-  echo "GITHUB_REF_NAME is required and must contain the release tag name." >&2
+  echo "RELEASE_TAG or GITHUB_REF_NAME is required and must contain the release tag name." >&2
+  exit 2
+fi
+
+if [[ "$tag_name" == "main" ]]; then
+  echo "Release tag name must not be main." >&2
+  exit 2
+fi
+
+if [[ ! "$tag_name" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  echo "Release tag ${tag_name} must match vMAJOR.MINOR.PATCH, for example v1.2.3." >&2
   exit 2
 fi
 

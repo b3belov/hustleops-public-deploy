@@ -9,7 +9,7 @@ on:
         type: string
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: create-release-tag
@@ -20,12 +20,12 @@ jobs:
     name: create-release-tag
     runs-on: ubuntu-24.04
     steps:
-      - name: Checkout main
+      - name: Check out main
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           ref: main
           fetch-depth: 0
-          token: ${{ secrets.RELEASE_TAG_TOKEN || github.token }}
+          persist-credentials: false
 
       - name: Validate requested version
         shell: bash
@@ -34,13 +34,12 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [[ ! "$VERSION" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+          if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "version must match vMAJOR.MINOR.PATCH, for example v1.2.3." >&2
             exit 1
           fi
 
           git fetch --no-tags --prune origin +refs/heads/main:refs/remotes/origin/main
-          git fetch --tags --force origin
 
           if git show-ref --verify --quiet "refs/tags/${VERSION}"; then
             echo "Tag ${VERSION} already exists locally." >&2
@@ -52,14 +51,34 @@ jobs:
             exit 1
           fi
 
+      - name: Verify release tag approver
+        shell: bash
+        env:
+          RELEASE_TAG_APPROVER: ${{ vars.RELEASE_TAG_APPROVER }}
+        run: bash scripts/ci/verify-production-approver.sh "$RELEASE_TAG_APPROVER"
+
       - name: Create and push annotated release tag
         shell: bash
         env:
           VERSION: ${{ inputs.version }}
+          RELEASE_TAG_DEPLOY_KEY: ${{ secrets.RELEASE_TAG_DEPLOY_KEY }}
+          REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
+
+          if [[ -z "$RELEASE_TAG_DEPLOY_KEY" ]]; then
+            echo "RELEASE_TAG_DEPLOY_KEY is required to create protected release tags." >&2
+            exit 2
+          fi
+
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$RELEASE_TAG_DEPLOY_KEY" > ~/.ssh/release-tag-deploy-key
+          chmod 600 ~/.ssh/release-tag-deploy-key
+          ssh-keyscan github.com >> ~/.ssh/known_hosts
+
           git checkout --detach refs/remotes/origin/main
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git tag -a "$VERSION" -m "Release $VERSION"
-          git push origin "refs/tags/${VERSION}"
+          git remote set-url origin "git@github.com:${REPOSITORY}.git"
+          GIT_SSH_COMMAND="ssh -i $HOME/.ssh/release-tag-deploy-key -o IdentitiesOnly=yes" git push origin "refs/tags/${VERSION}"

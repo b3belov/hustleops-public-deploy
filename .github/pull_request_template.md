@@ -15,7 +15,7 @@
 - [ ] Infrastructure / CI/CD
 - [ ] Release-related change
 
-## Validation
+## Validation checklist
 
 - [ ] Tests added/updated
 - [ ] Existing tests pass

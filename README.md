@@ -7,9 +7,11 @@ The HustleOps GHCR images are public and can be pulled without signing in.
 ## Requirements
 
 - Docker Engine with Docker Compose v2
+- Node.js 24 or newer for local validation scripts
 - Network access to `ghcr.io`
 - `cosign` for release image signature verification
 - `openssl` for generating deployment secrets
+- GNU `timeout` for non-dry-run migration/update flows. On macOS, install with `brew install coreutils` and ensure `timeout` is on `PATH`.
 
 ## Release
 
@@ -44,7 +46,7 @@ Repository maintainers can update this deployment bundle from a signed release c
 2. Keep the default contract ref for the latest release, or enter a specific `ghcr.io/hustleops/hustleops-release-contract:<version>` ref.
 3. Review and merge the generated update PR after CI passes.
 
-The workflow verifies the contract signature before reading the JSON payload, cross-checks the verified payload trust fields, verifies runtime image signatures, updates `.env.example`, records `releases/<tag>.json`, and validates the deploy scripts and Compose files.
+The workflow verifies the contract signature before reading the JSON payload, cross-checks the verified payload trust fields, verifies runtime image signatures, updates `.env.example`, records root and immutable release metadata, and validates the deploy scripts, Compose files, and nginx configs.
 
 After pulling a newer public deploy repository release, run:
 
@@ -54,7 +56,20 @@ After pulling a newer public deploy repository release, run:
 
 The update flow syncs release-managed image and metadata values from `.env.example` into `.env`, runs preflight checks, captures a PostgreSQL backup, applies pending migrations, runs the idempotent bootstrap contract, recreates core application services, and prints service status. Operator-provided secrets in `.env` are preserved.
 
-Use `--with-ancillary` only when n8n and OpenSearch Dashboards should be exposed publicly.
+Use `--with-ancillary` only when n8n and OpenSearch Dashboards should be exposed through the ancillary reverse proxy.
+
+## Local Validation
+
+Before opening a PR or applying a manual config change:
+
+```bash
+node scripts/make-ci-env.mjs --output /tmp/hustleops-ci.env
+node scripts/validate-release-metadata.mjs --env-file /tmp/hustleops-ci.env
+docker compose --env-file /tmp/hustleops-ci.env -f docker-compose.prod.yml config >/dev/null
+docker compose --env-file /tmp/hustleops-ci.env -f docker-compose.prod.yml --profile ancillary-public config >/dev/null
+./scripts/validate-nginx.sh
+./scripts/preflight.sh --env-file /tmp/hustleops-ci.env --skip-pull --skip-signature-verify
+```
 
 ## Manual Operations
 
@@ -75,11 +90,14 @@ docker compose --env-file .env -f docker-compose.prod.yml up -d backend frontend
 
 ## Optional Services
 
-n8n and OpenSearch Dashboards are not exposed by default. Enable them only when those public surfaces are required:
+n8n and OpenSearch Dashboards bind to localhost by default. Enable them only when those surfaces are required:
 
 ```bash
 COMPOSE_PROFILES=ancillary-public docker compose --env-file .env -f docker-compose.prod.yml up -d nginx-ancillary
 ```
+
+`--with-ancillary` publishes n8n on port `5678` and OpenSearch Dashboards on port `5601`.
+Only use non-localhost `ANCILLARY_N8N_BIND` or `ANCILLARY_DASHBOARDS_BIND` values behind a trusted network boundary such as VPN, private firewall rules, SSO-capable reverse proxy, or equivalent access control.
 
 ## Rollback
 

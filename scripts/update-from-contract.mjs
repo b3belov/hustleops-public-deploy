@@ -54,6 +54,18 @@ async function readJson(filePath) {
   return JSON.parse(await readFile(filePath, "utf8"));
 }
 
+async function readOptionalJson(filePath) {
+  try {
+    return await readJson(filePath);
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      return {};
+    }
+
+    throw error;
+  }
+}
+
 function requireString(value, field) {
   const normalized = `${value ?? ""}`.trim();
 
@@ -222,6 +234,168 @@ async function updateEnvTemplate(filePath, contract, deploymentTrigger) {
   await writeFile(filePath, content.endsWith("\n") ? content : `${content}\n`);
 }
 
+function imageNameFromRef(ref) {
+  return ref.split("/").at(-1) ?? ref;
+}
+
+function imageTags(image, version) {
+  return [
+    ...new Set([
+      image.tag,
+      version,
+      ...(Array.isArray(image.tags) ? image.tags : []),
+    ].filter(Boolean)),
+  ];
+}
+
+function buildRootImage(image, version) {
+  return {
+    name: image.name ?? imageNameFromRef(image.ref),
+    ref: image.ref,
+    tags: imageTags(image, version),
+    digest: image.digest,
+  };
+}
+
+function buildRootManifest({
+  contract,
+  deploymentTrigger,
+  existingManifest,
+}) {
+  const tag = contract.release.tag;
+  const version = contract.release.version;
+  const existingExtensions = existingManifest.extensions ?? {};
+  const existingDeployment = existingExtensions.deployment ?? {};
+  const existingMigration = existingExtensions.migration ?? {};
+  const existingVerification = existingExtensions.verification ?? {};
+  const successOutputMarkers = Array.isArray(contract.migration?.successOutputMarkers)
+    ? contract.migration.successOutputMarkers
+    : existingMigration.successOutputMarkers ?? [
+        "All migrations have been successfully applied.",
+        "No pending migrations to apply.",
+      ];
+
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    release: contract.release,
+    images: Object.fromEntries(
+      REQUIRED_IMAGE_KEYS.map((imageKey) => [
+        imageKey,
+        buildRootImage(contract.images[imageKey], version),
+      ]),
+    ),
+    deploy: {
+      ...(existingManifest.deploy ?? {}),
+      trigger: deploymentTrigger,
+      imageRefMode: "immutable",
+    },
+    extensions: {
+      ...existingExtensions,
+      deployment: {
+        ...existingDeployment,
+        envFilePath: existingDeployment.envFilePath ?? ".env.example",
+        composePath: existingDeployment.composePath ?? "docker-compose.prod.yml",
+        nginxConfigPath: existingDeployment.nginxConfigPath ?? "nginx/nginx.conf",
+        nginxAncillaryConfigPath: existingDeployment.nginxAncillaryConfigPath ?? "nginx/nginx.ancillary.conf",
+        nginxSecurityHeadersPath: existingDeployment.nginxSecurityHeadersPath ?? "nginx/security-headers.conf",
+        manifestPath: existingDeployment.manifestPath ?? "release-manifest.json",
+        verificationPath: existingDeployment.verificationPath ?? "release-verification.json",
+        deploymentTriggerPath: existingDeployment.deploymentTriggerPath ?? "deployment/release-trigger.txt",
+        immutableReleasePath: `releases/${tag}.json`,
+      },
+      migration: {
+        ...existingMigration,
+        service: existingMigration.service ?? "backend-migrate",
+        profile: existingMigration.profile ?? "migration",
+        envVar: existingMigration.envVar ?? "HUSTLEOPS_BACKEND_MIGRATION_IMAGE",
+        databaseUrlEnvVar: existingMigration.databaseUrlEnvVar ?? "DATABASE_URL",
+        timeoutSeconds: contract.migration.timeoutSeconds,
+        timeoutSemantics: existingMigration.timeoutSemantics ?? "fail if docker compose run --rm exceeds timeoutSeconds or exits non-zero",
+        successExitCode: existingMigration.successExitCode ?? 0,
+        successOutputMarkers,
+        successMarkerPath: `releases/${tag}.migration-success.json`,
+        successMarkerFormat: existingMigration.successMarkerFormat ?? "json",
+        successMarkerSchemaVersion: existingMigration.successMarkerSchemaVersion ?? SCHEMA_VERSION,
+        ownership: existingMigration.ownership ?? "single-runner",
+        rerunPolicy: existingMigration.rerunPolicy ?? "idempotent",
+        repeatReleaseBehavior: existingMigration.repeatReleaseBehavior ?? "safe-to-rerun-same-release",
+        releaseLinkage: {
+          ...(existingMigration.releaseLinkage ?? {}),
+          releaseTag: tag,
+          releaseVersion: version,
+          releaseUrl: contract.release.url,
+          deployTrigger: deploymentTrigger,
+          immutableReleasePath: `releases/${tag}.json`,
+          verificationPath: "release-verification.json",
+          manifestPath: "release-manifest.json",
+        },
+      },
+      verification: {
+        ...existingVerification,
+        provider: existingVerification.provider ?? "github-actions",
+        issuer: contract.trust.cosignIssuer,
+        certificateIdentity: contract.trust.certificateIdentity,
+        requiredArtifacts: contract.trust.requiredArtifacts,
+        sbomFormat: existingVerification.sbomFormat ?? contract.trust.sbomFormat ?? "spdx-json",
+        provenanceMode: existingVerification.provenanceMode ?? contract.trust.provenanceMode ?? "max",
+      },
+    },
+  };
+}
+
+function buildVerificationRecord({
+  contract,
+  existingVerification,
+}) {
+  const existingTrustPolicy = existingVerification.trustPolicy ?? {};
+  const provider = existingTrustPolicy.provider ?? "github-actions";
+  const trustPolicy = {
+    provider,
+    issuer: contract.trust.cosignIssuer,
+    certificateIdentity: contract.trust.certificateIdentity,
+    requiredArtifacts: contract.trust.requiredArtifacts,
+    sbomFormat: existingTrustPolicy.sbomFormat ?? contract.trust.sbomFormat ?? "spdx-json",
+    provenanceMode: existingTrustPolicy.provenanceMode ?? contract.trust.provenanceMode ?? "max",
+  };
+
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    release: contract.release,
+    trustPolicy,
+    images: Object.fromEntries(
+      REQUIRED_IMAGE_KEYS.map((imageKey) => {
+        const image = contract.images[imageKey];
+        const existingImage = existingVerification.images?.[imageKey] ?? {};
+        const existingImageVerification = existingImage.verification ?? {};
+
+        return [
+          imageKey,
+          {
+            name: image.name ?? imageNameFromRef(image.ref),
+            digest: image.digest,
+            immutableRef: image.immutableRef,
+            verification: {
+              signature: {
+                provider,
+                issuer: trustPolicy.issuer,
+                certificateIdentity: trustPolicy.certificateIdentity,
+              },
+              provenance: {
+                provider: existingImageVerification.provenance?.provider ?? provider,
+                mode: existingImageVerification.provenance?.mode ?? trustPolicy.provenanceMode,
+              },
+              sbom: {
+                provider: existingImageVerification.sbom?.provider ?? provider,
+                format: existingImageVerification.sbom?.format ?? trustPolicy.sbomFormat,
+              },
+            },
+          },
+        ];
+      }),
+    ),
+  };
+}
+
 function buildReleaseRecord({
   contract,
   contractRef,
@@ -298,6 +472,16 @@ async function main() {
     path.join(projectRoot, ".env.example"),
   );
   const releaseDir = optionalArg(args, "release-dir", path.join(projectRoot, "releases"));
+  const manifestFile = optionalArg(
+    args,
+    "manifest-file",
+    path.join(projectRoot, "release-manifest.json"),
+  );
+  const verificationFile = optionalArg(
+    args,
+    "verification-file",
+    path.join(projectRoot, "release-verification.json"),
+  );
   const deploymentTriggerFile = optionalArg(
     args,
     "deployment-trigger-file",
@@ -319,7 +503,18 @@ async function main() {
     expectedIssuer,
     certificateIdentityPattern,
   });
+  const existingManifest = await readOptionalJson(manifestFile);
+  const existingVerification = await readOptionalJson(verificationFile);
   const deploymentTrigger = buildDeploymentTrigger(contract);
+  const rootManifest = buildRootManifest({
+    contract,
+    deploymentTrigger,
+    existingManifest,
+  });
+  const rootVerification = buildVerificationRecord({
+    contract,
+    existingVerification,
+  });
   const releaseRecord = buildReleaseRecord({
     contract,
     contractRef,
@@ -330,6 +525,10 @@ async function main() {
   const releaseRecordFile = path.join(releaseDir, `${tag}.json`);
 
   await updateEnvTemplate(envTemplateFile, contract, deploymentTrigger);
+  await mkdir(path.dirname(manifestFile), { recursive: true });
+  await writeFile(manifestFile, `${JSON.stringify(rootManifest, null, 2)}\n`);
+  await mkdir(path.dirname(verificationFile), { recursive: true });
+  await writeFile(verificationFile, `${JSON.stringify(rootVerification, null, 2)}\n`);
   await mkdir(path.dirname(deploymentTriggerFile), { recursive: true });
   await writeFile(deploymentTriggerFile, `${deploymentTrigger}\n`);
   await mkdir(releaseDir, { recursive: true });
@@ -350,6 +549,8 @@ async function main() {
   process.stdout.write(`${JSON.stringify(
     {
       releaseTag: tag,
+      manifestFile,
+      verificationFile,
       releaseRecordFile,
       deploymentTrigger,
       signaturePlanFile,

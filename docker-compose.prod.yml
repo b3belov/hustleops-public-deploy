@@ -300,8 +300,8 @@ services:
       - ./nginx/security-headers.conf:/etc/nginx/security-headers.conf:ro
       - ./logs/nginx-ancillary:/var/log/hustleops:rw
     ports:
-      - "5678:5678"
-      - "5601:5601"
+      - "${ANCILLARY_N8N_BIND:-127.0.0.1}:5678:5678"
+      - "${ANCILLARY_DASHBOARDS_BIND:-127.0.0.1}:5601:5601"
     depends_on:
       n8n:
         condition: service_started

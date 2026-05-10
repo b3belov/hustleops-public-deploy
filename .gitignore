@@ -2,9 +2,24 @@
 .env.local
 .env.*.local
 
+.DS_Store
+
+.hustleops/*
+!.hustleops/.gitkeep
+
+backups/**
+!backups/
+!backups/**/
+!backups/**/.gitkeep
+
 data/**
 !data/
 !data/**/
 !data/**/.gitkeep
+
+logs/**
+!logs/
+!logs/**/
+!logs/**/.gitkeep
 
 /docs/superpowers

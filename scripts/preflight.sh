@@ -8,8 +8,10 @@ ENV_FILE="$PROJECT_ROOT/.env"
 COMPOSE_FILE="$PROJECT_ROOT/docker-compose.prod.yml"
 MANIFEST_FILE="$PROJECT_ROOT/release-manifest.json"
 VERIFICATION_FILE="$PROJECT_ROOT/release-verification.json"
+DEPLOYMENT_TRIGGER_FILE="$PROJECT_ROOT/deployment/release-trigger.txt"
 SKIP_PULL=0
 SKIP_SIGNATURE_VERIFY=0
+SIGNATURE_PLAN_FILE=""
 
 usage() {
   cat <<'EOF'
@@ -197,138 +199,30 @@ run_pull_checks() {
   docker pull --platform linux/amd64 "$HUSTLEOPS_BACKEND_MIGRATION_IMAGE" >/dev/null
 }
 
-build_signature_plan() {
-  node - \
-    "$MANIFEST_FILE" \
-    "$VERIFICATION_FILE" \
-    "$HUSTLEOPS_BACKEND_IMAGE" \
-    "$HUSTLEOPS_FRONTEND_IMAGE" \
-    "$HUSTLEOPS_BACKEND_MIGRATION_IMAGE" <<'NODE'
-const fs = require('node:fs');
+validate_release_metadata() {
+  local args=(
+    "$PROJECT_ROOT/scripts/validate-release-metadata.mjs"
+    --env-file "$ENV_FILE"
+    --manifest-file "$MANIFEST_FILE"
+    --verification-file "$VERIFICATION_FILE"
+    --deployment-trigger-file "$DEPLOYMENT_TRIGGER_FILE"
+    --release-dir "$PROJECT_ROOT/releases"
+  )
 
-const [
-  manifestFile,
-  verificationFile,
-  backendImage,
-  frontendImage,
-  migrationImage,
-] = process.argv.slice(2);
+  note "Validating release metadata"
+  if [[ $SKIP_SIGNATURE_VERIFY -eq 0 ]]; then
+    SIGNATURE_PLAN_FILE="$(mktemp)"
+    args+=(--signature-plan-file "$SIGNATURE_PLAN_FILE")
+  fi
 
-function fail(message) {
-  console.error(message);
-  process.exit(1);
-}
-
-function readJson(filePath, label) {
-  try {
-    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
-  } catch (error) {
-    fail(`Could not parse ${label}: ${error instanceof Error ? error.message : String(error)}`);
-  }
-}
-
-function requireString(value, field) {
-  if (typeof value !== 'string' || value.trim().length === 0) {
-    fail(`Release verification is missing ${field}.`);
-  }
-
-  return value;
-}
-
-function immutableRef(image, imageKey) {
-  const ref = requireString(image?.ref, `manifest image ${imageKey}.ref`);
-  const digest = requireString(
-    image?.digest,
-    `manifest image ${imageKey}.digest`,
-  );
-  const version = requireString(manifest.release?.version, 'release.version');
-
-  if (!/^sha256:[a-f0-9]{64}$/i.test(digest)) {
-    fail(`Manifest image ${imageKey} digest must be sha256.`);
-  }
-
-  if (Array.isArray(image?.tags) && !image.tags.includes(version)) {
-    fail(`Manifest image ${imageKey} tags must include ${version}.`);
-  }
-
-  return `${ref}:${version}@${digest}`;
-}
-
-const manifest = readJson(manifestFile, 'release manifest');
-const verification = readJson(verificationFile, 'release verification');
-const trustPolicy = verification.trustPolicy ?? {};
-const certificateIdentity = requireString(
-  trustPolicy.certificateIdentity,
-  'trustPolicy.certificateIdentity',
-);
-const issuer = requireString(trustPolicy.issuer, 'trustPolicy.issuer');
-const expectedImages = {
-  backend: {
-    envName: 'HUSTLEOPS_BACKEND_IMAGE',
-    envValue: backendImage,
-  },
-  frontend: {
-    envName: 'HUSTLEOPS_FRONTEND_IMAGE',
-    envValue: frontendImage,
-  },
-  migration: {
-    envName: 'HUSTLEOPS_BACKEND_MIGRATION_IMAGE',
-    envValue: migrationImage,
-  },
-};
-
-for (const field of ['tag', 'version', 'commitSha']) {
-  if (manifest.release?.[field] !== verification.release?.[field]) {
-    fail(`Release verification mismatch for ${field}.`);
-  }
-}
-
-for (const [imageKey, expected] of Object.entries(expectedImages)) {
-  const manifestImage = manifest.images?.[imageKey];
-  const verificationImage = verification.images?.[imageKey];
-
-  if (!manifestImage) {
-    fail(`Release manifest is missing image entry for ${imageKey}.`);
-  }
-
-  if (!verificationImage) {
-    fail(`Release verification is missing image entry for ${imageKey}.`);
-  }
-
-  const expectedRef = immutableRef(manifestImage, imageKey);
-  if (verificationImage.immutableRef !== expectedRef) {
-    fail(`Release verification immutable image mismatch for ${imageKey}.`);
-  }
-
-  if (verificationImage.digest !== manifestImage.digest) {
-    fail(`Release verification digest mismatch for ${imageKey}.`);
-  }
-
-  if (expected.envValue !== expectedRef) {
-    fail(`${expected.envName} must match ${imageKey} immutable image from release verification.`);
-  }
-
-  const signature = verificationImage.verification?.signature ?? {};
-  if (signature.certificateIdentity !== certificateIdentity) {
-    fail(`Signature identity mismatch for ${imageKey}.`);
-  }
-
-  if (signature.issuer !== issuer) {
-    fail(`Signature issuer mismatch for ${imageKey}.`);
-  }
-
-  console.log(`${expectedRef}\t${certificateIdentity}\t${issuer}`);
-}
-NODE
+  node "${args[@]}"
 }
 
 run_signature_checks() {
-  local verification_plan image_ref certificate_identity issuer
+  local image_ref certificate_identity issuer
 
   note "Verifying release image signatures"
-  if ! verification_plan="$(build_signature_plan)"; then
-    fail "Release verification metadata check failed."
-  fi
+  [[ -n "$SIGNATURE_PLAN_FILE" ]] || fail "Signature plan was not generated."
 
   while IFS=$'\t' read -r image_ref certificate_identity issuer; do
     [[ -n "$image_ref" ]] || continue
@@ -338,7 +232,7 @@ run_signature_checks() {
       "$image_ref" >/dev/null; then
       fail "Signature verification failed for $image_ref."
     fi
-  done <<< "$verification_plan"
+  done < "$SIGNATURE_PLAN_FILE"
 }
 
 run_compose_checks() {
@@ -401,13 +295,23 @@ load_env_file
 validate_env
 
 command -v docker >/dev/null 2>&1 || fail "docker must be installed and on PATH."
+command -v node >/dev/null 2>&1 || fail "node must be installed and on PATH."
+[[ -f "$MANIFEST_FILE" ]] || fail "Release manifest file not found: $MANIFEST_FILE"
+[[ -f "$VERIFICATION_FILE" ]] || fail "Release verification file not found: $VERIFICATION_FILE"
+[[ -f "$DEPLOYMENT_TRIGGER_FILE" ]] || fail "Deployment trigger file not found: $DEPLOYMENT_TRIGGER_FILE"
 
 if [[ $SKIP_SIGNATURE_VERIFY -eq 0 ]]; then
-  command -v node >/dev/null 2>&1 || fail "node must be installed and on PATH for signature verification."
   command -v cosign >/dev/null 2>&1 || fail "cosign must be installed and on PATH, or pass --skip-signature-verify."
-  [[ -f "$MANIFEST_FILE" ]] || fail "Release manifest file not found: $MANIFEST_FILE"
-  [[ -f "$VERIFICATION_FILE" ]] || fail "Release verification file not found: $VERIFICATION_FILE"
 fi
+
+cleanup() {
+  if [[ -n "$SIGNATURE_PLAN_FILE" ]]; then
+    rm -f "$SIGNATURE_PLAN_FILE"
+  fi
+}
+trap cleanup EXIT
+
+validate_release_metadata
 
 if [[ $SKIP_SIGNATURE_VERIFY -eq 0 ]]; then
   run_signature_checks

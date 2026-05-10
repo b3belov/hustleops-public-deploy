@@ -270,7 +270,9 @@ check_tools() {
   case "$COMMAND" in
     setup|update)
       require_command node
-      require_command timeout
+      if [[ "$DRY_RUN" -eq 0 ]]; then
+        require_command timeout
+      fi
       if [[ "$SKIP_SIGNATURE_VERIFY" -eq 0 ]]; then
         require_command cosign
       fi

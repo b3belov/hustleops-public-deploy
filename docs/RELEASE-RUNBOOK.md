@@ -17,14 +17,7 @@ Validate the deploy payload before rollout:
 
 ```bash
 docker compose --env-file .env -f docker-compose.prod.yml config
-docker run --rm \
-  --add-host frontend:127.0.0.1 \
-  --add-host backend:127.0.0.1 \
-  --add-host n8n:127.0.0.1 \
-  --add-host opensearch-dashboards:127.0.0.1 \
-  -v "$PWD/nginx/nginx.conf:/etc/nginx/nginx.conf:ro" \
-  -v "$PWD/nginx/security-headers.conf:/etc/nginx/security-headers.conf:ro" \
-  nginx:1.27-alpine nginx -t
+./scripts/validate-nginx.sh
 ```
 
 ## Persistence Layout
@@ -32,7 +25,7 @@ docker run --rm \
 - `data/postgres/` stores HustleOps PostgreSQL data on the host.
 - `data/n8n/postgres/` stores n8n PostgreSQL data on the host.
 - `data/uploads/` stores backend uploads, screenshots, and chat files on the host.
-- Redis, OpenSearch, n8n state, and n8n Redis use Docker named volumes defined in Compose.
+- Redis, OpenSearch, n8n state, n8n PostgreSQL, and n8n Redis use host bind mounts under `data/`.
 
 ## Rollback
 

@@ -1,0 +1,166 @@
+name: Pull Request Checks
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-checks-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "24"
+
+jobs:
+  validate:
+    name: validate
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install ShellCheck
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+
+      - name: Run detected Node.js checks
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ ! -f package.json ]]; then
+            echo "No package.json detected; skipping npm project checks."
+            exit 0
+          fi
+
+          if [[ ! -f package-lock.json && ! -f npm-shrinkwrap.json ]]; then
+            echo "package.json detected, but npm ci requires package-lock.json or npm-shrinkwrap.json." >&2
+            exit 1
+          fi
+
+          npm ci
+          npm run lint --if-present
+          npm test --if-present
+          npm run build --if-present
+
+      - name: Run detected Python checks
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ ! -f pyproject.toml && ! -f requirements.txt ]]; then
+            echo "No pyproject.toml or requirements.txt detected; skipping Python project checks."
+            exit 0
+          fi
+
+          python3 -m venv .venv
+          . .venv/bin/activate
+          python -m pip install --upgrade pip
+
+          if [[ -f requirements.txt ]]; then
+            python -m pip install -r requirements.txt
+          fi
+
+          if [[ -f pyproject.toml ]]; then
+            python -m pip install .
+          fi
+
+          if python -m pytest --version >/dev/null 2>&1; then
+            python -m pytest
+          else
+            echo "pytest is not installed; skipping Python tests."
+          fi
+
+      - name: Validate deploy bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n \
+            scripts/preflight.sh \
+            scripts/backup-postgres.sh \
+            scripts/run-migration.sh \
+            scripts/deploy.sh \
+            scripts/validate-nginx.sh \
+            scripts/ci/verify-release-tag-from-main.sh \
+            scripts/ci/check-actions-pinning.sh
+          shellcheck \
+            scripts/preflight.sh \
+            scripts/backup-postgres.sh \
+            scripts/run-migration.sh \
+            scripts/deploy.sh \
+            scripts/validate-nginx.sh \
+            scripts/ci/verify-release-tag-from-main.sh \
+            scripts/ci/check-actions-pinning.sh
+          node --check scripts/build-public-release-notes.mjs
+          node --check scripts/build-public-deploy-release.mjs
+          node --check scripts/update-from-contract.mjs
+          node --check scripts/make-ci-env.mjs
+          node --check scripts/validate-release-metadata.mjs
+          docker run --rm \
+            -v "$PWD:/repo:ro" \
+            --workdir /repo \
+            rhysd/actionlint:1.7.7
+
+      - name: Generate CI env
+        run: node scripts/make-ci-env.mjs --output .hustleops/ci.env
+
+      - name: Run Node tests
+        run: node --test tests/*.test.mjs
+
+      - name: Validate release metadata
+        run: |
+          node scripts/validate-release-metadata.mjs \
+            --env-file .hustleops/ci.env \
+            --signature-plan-file .hustleops/image-signatures.tsv
+
+      - name: Render Compose configs
+        run: |
+          set -euo pipefail
+          docker compose --env-file .hustleops/ci.env -f docker-compose.prod.yml config >/dev/null
+          docker compose --env-file .hustleops/ci.env -f docker-compose.prod.yml --profile migration config >/dev/null
+          docker compose --env-file .hustleops/ci.env -f docker-compose.prod.yml --profile bootstrap config >/dev/null
+          docker compose --env-file .hustleops/ci.env -f docker-compose.prod.yml --profile ancillary-public config >/dev/null
+
+      - name: Validate nginx configs
+        run: ./scripts/validate-nginx.sh
+
+      - name: Validate deploy dry-run
+        run: |
+          set -euo pipefail
+          ./scripts/preflight.sh --env-file .hustleops/ci.env --skip-pull --skip-signature-verify
+          ./scripts/deploy.sh update \
+            --env-file .hustleops/ci.env \
+            --skip-pull \
+            --skip-signature-verify \
+            --skip-backup \
+            --skip-bootstrap \
+            --no-start \
+            --dry-run \
+            --yes
+
+  action-security:
+    name: action-security
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+
+      - name: Enforce GitHub Actions pinning
+        shell: bash
+        run: bash scripts/ci/check-actions-pinning.sh

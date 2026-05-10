@@ -34,12 +34,12 @@ jobs:
           node-version: "24"
 
       - name: Install ORAS
-        uses: oras-project/setup-oras@v1.2.4
+        uses: oras-project/setup-oras@22ce207df3b08e061f537244349aac6ae1d214f6
         with:
           version: ${{ env.ORAS_VERSION }}
 
       - name: Install cosign
-        uses: sigstore/cosign-installer@v3.8.1
+        uses: sigstore/cosign-installer@d7d6bc7722e3daa8354c50bcb52f4837da5e9b6a
 
       - name: Install shellcheck
         shell: bash

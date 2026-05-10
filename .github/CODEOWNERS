@@ -1,0 +1,10 @@
+* @b3belov
+
+.github/workflows/ @b3belov
+scripts/ci/ @b3belov
+infra/ @b3belov
+terraform/ @b3belov
+helm/ @b3belov
+k8s/ @b3belov
+auth/ @b3belov
+security/ @b3belov

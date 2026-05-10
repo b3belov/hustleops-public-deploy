@@ -192,9 +192,9 @@ validate_env() {
 
 run_pull_checks() {
   note "Pulling pinned release images"
-  docker pull "$HUSTLEOPS_BACKEND_IMAGE" >/dev/null
-  docker pull "$HUSTLEOPS_FRONTEND_IMAGE" >/dev/null
-  docker pull "$HUSTLEOPS_BACKEND_MIGRATION_IMAGE" >/dev/null
+  docker pull --platform linux/amd64 "$HUSTLEOPS_BACKEND_IMAGE" >/dev/null
+  docker pull --platform linux/amd64 "$HUSTLEOPS_FRONTEND_IMAGE" >/dev/null
+  docker pull --platform linux/amd64 "$HUSTLEOPS_BACKEND_MIGRATION_IMAGE" >/dev/null
 }
 
 build_signature_plan() {

@@ -5,9 +5,11 @@
     ".env.example",
     "docker-compose.prod.yml",
     "scripts/preflight.sh",
+    "scripts/update-from-contract.mjs",
     "scripts/backup-postgres.sh",
     "scripts/run-migration.sh",
     "scripts/deploy.sh",
+    ".github/workflows/update-from-contract.yml",
     "data/postgres/.gitkeep",
     "data/redis/.gitkeep",
     "data/opensearch/.gitkeep",
@@ -40,6 +42,6 @@
     "deployment/release-trigger.txt"
   ],
   "appendOnlyFiles": [
-    "releases/v0.1.1.json"
+    "releases/v0.2.1.json"
   ]
 }

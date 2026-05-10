@@ -1,0 +1,184 @@
+name: Update From Release Contract
+
+on:
+  workflow_dispatch:
+    inputs:
+      contract-ref:
+        description: "Release contract OCI ref to consume"
+        required: true
+        default: ghcr.io/hustleops/hustleops-release-contract:latest
+
+permissions:
+  contents: write
+  pull-requests: write
+
+env:
+  ORAS_VERSION: 1.3.0
+  CONTRACT_TRUST_ISSUER: https://token.actions.githubusercontent.com
+  CONTRACT_CERTIFICATE_IDENTITY_PATTERN: https://github.com/HustleOps/HustleOps/.github/workflows/release.yml@refs/tags/v*
+  CONTRACT_CERTIFICATE_IDENTITY_REGEXP: ^https://github\.com/HustleOps/HustleOps/\.github/workflows/release\.yml@refs/tags/v[0-9]+\.[0-9]+\.[0-9]+$
+
+jobs:
+  update-from-contract:
+    name: Verify Contract And Open Update PR
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout public deploy repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: "24"
+
+      - name: Install ORAS
+        uses: oras-project/setup-oras@v1.2.4
+        with:
+          version: ${{ env.ORAS_VERSION }}
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3.8.1
+
+      - name: Resolve, verify, and fetch release contract
+        id: contract
+        shell: bash
+        env:
+          CONTRACT_REF: ${{ inputs.contract-ref }}
+        run: |
+          set -euo pipefail
+          mkdir -p .hustleops/contract
+
+          CONTRACT_PACKAGE_REF="${CONTRACT_REF%@*}"
+          CONTRACT_PACKAGE_REF="${CONTRACT_PACKAGE_REF%:*}"
+          CONTRACT_DIGEST="$(oras resolve "$CONTRACT_REF")"
+          CONTRACT_DIGEST_REF="${CONTRACT_PACKAGE_REF}@${CONTRACT_DIGEST}"
+
+          cosign verify \
+            --certificate-identity-regexp "$CONTRACT_CERTIFICATE_IDENTITY_REGEXP" \
+            --certificate-oidc-issuer "$CONTRACT_TRUST_ISSUER" \
+            "$CONTRACT_DIGEST_REF" >/dev/null
+
+          oras pull "$CONTRACT_DIGEST_REF" -o .hustleops/contract
+          contract_file="$(find .hustleops/contract -type f -name 'release-contract.json' -print -quit)"
+          if [[ -z "$contract_file" ]]; then
+            contract_file="$(find .hustleops/contract -type f -name '*.json' -print -quit)"
+          fi
+          if [[ -z "$contract_file" ]]; then
+            echo "No JSON contract file was pulled from ${CONTRACT_DIGEST_REF}." >&2
+            exit 1
+          fi
+
+          {
+            echo "contract-ref=${CONTRACT_REF}"
+            echo "contract-digest=${CONTRACT_DIGEST}"
+            echo "contract-digest-ref=${CONTRACT_DIGEST_REF}"
+            echo "contract-file=${contract_file}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Update deploy files from verified contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/update-from-contract.mjs \
+            --contract-file "${{ steps.contract.outputs.contract-file }}" \
+            --contract-ref "${{ steps.contract.outputs.contract-ref }}" \
+            --contract-digest "${{ steps.contract.outputs.contract-digest }}" \
+            --expected-issuer "$CONTRACT_TRUST_ISSUER" \
+            --certificate-identity-pattern "$CONTRACT_CERTIFICATE_IDENTITY_PATTERN" \
+            --signature-plan-file .hustleops/image-signatures.tsv \
+            --pr-body-file .hustleops/update-pr-body.md
+
+      - name: Verify runtime image signatures
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS=$'\t' read -r image_ref certificate_identity issuer; do
+            [[ -n "$image_ref" ]] || continue
+            cosign verify \
+              --certificate-identity "$certificate_identity" \
+              --certificate-oidc-issuer "$issuer" \
+              "$image_ref" >/dev/null
+          done < .hustleops/image-signatures.tsv
+
+      - name: Validate public deploy update
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n scripts/preflight.sh scripts/backup-postgres.sh scripts/run-migration.sh scripts/deploy.sh
+          node --check scripts/update-from-contract.mjs
+
+          node --input-type=module <<'NODE'
+          import { readFileSync, writeFileSync } from 'node:fs';
+
+          const replacements = {
+            POSTGRES_PASSWORD: 'Ho1!postgres-password-for-ci',
+            REDIS_PASSWORD: 'Ho1!redis-password-for-ci',
+            JWT_ACCESS_SECRET: 'ci-access-secret-ci-access-secret-123456',
+            JWT_REFRESH_SECRET: 'ci-refresh-secret-ci-refresh-secret-123456',
+            TWO_FACTOR_ENCRYPTION_KEY: 'a'.repeat(64),
+            BOOTSTRAP_ADMIN_EMAIL: 'admin@hustleops.local',
+            BOOTSTRAP_ADMIN_PASSWORD: 'Ho1!bootstrap-password-for-ci',
+            CORS_ORIGIN: 'https://hustleops.local',
+            OPENSEARCH_ADMIN_PASSWORD: 'Ho1!opensearch-password-for-ci',
+            N8N_POSTGRES_PASSWORD: 'Ho1!n8n-postgres-password-for-ci',
+            N8N_REDIS_PASSWORD: 'Ho1!n8n-redis-password-for-ci',
+            N8N_ENCRYPTION_KEY: 'Ho1!n8n-encryption-key-for-ci-123456',
+            N8N_RUNNERS_AUTH_TOKEN: 'b'.repeat(64),
+          };
+          let content = readFileSync('.env.example', 'utf8');
+          for (const [key, value] of Object.entries(replacements)) {
+            content = content.replace(new RegExp(`^${key}=.*$`, 'm'), `${key}=${value}`);
+          }
+          writeFileSync('.hustleops/ci.env', content);
+          NODE
+
+          docker compose --env-file .hustleops/ci.env -f docker-compose.prod.yml config >/dev/null
+          docker compose --env-file .hustleops/ci.env -f docker-compose.prod.yml --profile ancillary-public config >/dev/null
+          ./scripts/preflight.sh --env-file .hustleops/ci.env --skip-pull --skip-signature-verify
+          ./scripts/deploy.sh update \
+            --env-file .hustleops/ci.env \
+            --skip-pull \
+            --skip-signature-verify \
+            --skip-backup \
+            --skip-bootstrap \
+            --no-start \
+            --dry-run \
+            --yes
+
+      - name: Open or update public deploy update PR
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version="$(node -e "const fs=require('node:fs'); const data=JSON.parse(fs.readFileSync('${{ steps.contract.outputs.contract-file }}','utf8')); process.stdout.write(data.release.version)")"
+          tag="v${version}"
+          branch_name="automation/hustleops-${tag}-contract-update"
+
+          if [[ -z "$(git status --porcelain -- .env.example deployment releases)" ]]; then
+            echo "No public deploy changes generated for ${tag}."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B "$branch_name"
+          git add .env.example deployment releases
+          git commit -m "chore(release): update public deploy for ${tag}"
+          git push --force-with-lease origin "$branch_name"
+
+          existing_pr_url="$(gh pr list --head "$branch_name" --json url --jq '.[0].url // ""')"
+          if [[ -n "$existing_pr_url" ]]; then
+            gh pr edit "$branch_name" \
+              --title "chore(release): update public deploy for ${tag}" \
+              --body-file .hustleops/update-pr-body.md
+            echo "Updated ${existing_pr_url}"
+          else
+            gh pr create \
+              --base main \
+              --head "$branch_name" \
+              --title "chore(release): update public deploy for ${tag}" \
+              --body-file .hustleops/update-pr-body.md
+          fi

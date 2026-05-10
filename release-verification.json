@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
   "release": {
-    "tag": "v0.1.1",
-    "version": "0.1.1",
-    "commitSha": "c7d17d889437fc38d353ba406ca7bf63d51d9240",
-    "releasedAt": "2026-05-07T19:23:24Z",
-    "url": "https://github.com/HustleOps/HustleOps/releases/tag/v0.1.1"
+    "tag": "v0.2.1",
+    "version": "0.2.1",
+    "commitSha": "43e7fb33620b48ee032b567e9b423f13d6e7fb9f",
+    "releasedAt": "2026-05-10T09:51:13Z",
+    "url": "https://github.com/HustleOps/HustleOps/releases/tag/v0.2.1"
   },
   "trustPolicy": {
     "provider": "github-actions",
     "issuer": "https://token.actions.githubusercontent.com",
-    "certificateIdentity": "https://github.com/HustleOps/HustleOps/.github/workflows/release.yml@refs/tags/v0.1.1",
+    "certificateIdentity": "https://github.com/HustleOps/HustleOps/.github/workflows/release.yml@refs/tags/v0.2.1",
     "requiredArtifacts": [
       "signature",
       "provenance",
@@ -22,13 +22,13 @@
   "images": {
     "backend": {
       "name": "hustleops-public-backend",
-      "digest": "sha256:2a4540c60847a106958c9667cd1a2adc78fb2e8402f8886ed4684e93be40875e",
-      "immutableRef": "ghcr.io/hustleops/hustleops-public-backend:0.1.1@sha256:2a4540c60847a106958c9667cd1a2adc78fb2e8402f8886ed4684e93be40875e",
+      "digest": "sha256:2e61ecb951a287a0487549e6602701624ba1bd5e8ceb35acb1a87f449ec98de7",
+      "immutableRef": "ghcr.io/hustleops/hustleops-public-backend:0.2.1@sha256:2e61ecb951a287a0487549e6602701624ba1bd5e8ceb35acb1a87f449ec98de7",
       "verification": {
         "signature": {
           "provider": "github-actions",
           "issuer": "https://token.actions.githubusercontent.com",
-          "certificateIdentity": "https://github.com/HustleOps/HustleOps/.github/workflows/release.yml@refs/tags/v0.1.1"
+          "certificateIdentity": "https://github.com/HustleOps/HustleOps/.github/workflows/release.yml@refs/tags/v0.2.1"
         },
         "provenance": {
           "provider": "github-actions",
@@ -42,13 +42,13 @@
     },
     "frontend": {
       "name": "hustleops-public-frontend",
-      "digest": "sha256:75433dc3aefa5852b4ac3b20e0de17aad034aa615d733d84cdbf095a177d1356",
-      "immutableRef": "ghcr.io/hustleops/hustleops-public-frontend:0.1.1@sha256:75433dc3aefa5852b4ac3b20e0de17aad034aa615d733d84cdbf095a177d1356",
+      "digest": "sha256:727e1e52c405d579b6fb0e844b8e3cdfdacb33bf43455fe1c76440bc02df9911",
+      "immutableRef": "ghcr.io/hustleops/hustleops-public-frontend:0.2.1@sha256:727e1e52c405d579b6fb0e844b8e3cdfdacb33bf43455fe1c76440bc02df9911",
       "verification": {
         "signature": {
           "provider": "github-actions",
           "issuer": "https://token.actions.githubusercontent.com",
-          "certificateIdentity": "https://github.com/HustleOps/HustleOps/.github/workflows/release.yml@refs/tags/v0.1.1"
+          "certificateIdentity": "https://github.com/HustleOps/HustleOps/.github/workflows/release.yml@refs/tags/v0.2.1"
         },
         "provenance": {
           "provider": "github-actions",
@@ -62,13 +62,13 @@
     },
     "migration": {
       "name": "hustleops-public-backend-migrate",
-      "digest": "sha256:e85e3e3a8101c8ab710ee2e7b757f695aac91a069d0866e0e0d5f885611c74b6",
-      "immutableRef": "ghcr.io/hustleops/hustleops-public-backend-migrate:0.1.1@sha256:e85e3e3a8101c8ab710ee2e7b757f695aac91a069d0866e0e0d5f885611c74b6",
+      "digest": "sha256:6374b280d63ba503f031de474bf7ed5f6cd8b5448965ed932867d0e906b3de88",
+      "immutableRef": "ghcr.io/hustleops/hustleops-public-backend-migrate:0.2.1@sha256:6374b280d63ba503f031de474bf7ed5f6cd8b5448965ed932867d0e906b3de88",
       "verification": {
         "signature": {
           "provider": "github-actions",
           "issuer": "https://token.actions.githubusercontent.com",
-          "certificateIdentity": "https://github.com/HustleOps/HustleOps/.github/workflows/release.yml@refs/tags/v0.1.1"
+          "certificateIdentity": "https://github.com/HustleOps/HustleOps/.github/workflows/release.yml@refs/tags/v0.2.1"
         },
         "provenance": {
           "provider": "github-actions",

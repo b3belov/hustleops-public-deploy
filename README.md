@@ -13,8 +13,8 @@ The HustleOps GHCR images are public and can be pulled without signing in.
 
 ## Release
 
-- Tag: `v0.1.1`
-- Version: `0.1.1`
+- Tag: `v0.2.1`
+- Version: `0.2.1`
 
 ## Setup
 
@@ -37,6 +37,14 @@ The HustleOps GHCR images are public and can be pulled without signing in.
    The setup flow validates required tools, verifies release images, captures a PostgreSQL backup, applies migrations, runs the initial-admin bootstrap, and starts the core application services.
 
 ## Update
+
+Repository maintainers can update this deployment bundle from a signed release contract before operators pull it:
+
+1. Run the `Update From Release Contract` GitHub Actions workflow.
+2. Keep the default contract ref for the latest release, or enter a specific `ghcr.io/hustleops/hustleops-release-contract:<version>` ref.
+3. Review and merge the generated update PR after CI passes.
+
+The workflow verifies the contract signature before reading the JSON payload, cross-checks the verified payload trust fields, verifies runtime image signatures, updates `.env.example`, records `releases/<tag>.json`, and validates the deploy scripts and Compose files.
 
 After pulling a newer public deploy repository release, run:
 

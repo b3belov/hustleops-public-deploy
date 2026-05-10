@@ -1,16 +1,17 @@
 {
   "schemaVersion": 1,
   "release": {
-    "tag": "v0.2.1",
-    "version": "0.2.1",
-    "commitSha": "43e7fb33620b48ee032b567e9b423f13d6e7fb9f",
-    "releasedAt": "2026-05-10T09:51:13Z",
-    "url": "https://github.com/HustleOps/HustleOps/releases/tag/v0.2.1"
+    "tag": "v0.2.4",
+    "version": "0.2.4",
+    "commitSha": "c08d7b961b680c8bdd1ec6e7758cb8389230f0b6",
+    "releasedAt": "2026-05-10T13:27:45Z",
+    "summary": "Release v0.2.4 public runtime images and migration contract.",
+    "url": "https://github.com/HustleOps/HustleOps/releases/tag/v0.2.4"
   },
   "trustPolicy": {
     "provider": "github-actions",
     "issuer": "https://token.actions.githubusercontent.com",
-    "certificateIdentity": "https://github.com/HustleOps/HustleOps/.github/workflows/release.yml@refs/tags/v0.2.1",
+    "certificateIdentity": "https://github.com/HustleOps/HustleOps/.github/workflows/release.yml@refs/tags/v0.2.4",
     "requiredArtifacts": [
       "signature",
       "provenance",
@@ -22,13 +23,13 @@
   "images": {
     "backend": {
       "name": "hustleops-public-backend",
-      "digest": "sha256:2e61ecb951a287a0487549e6602701624ba1bd5e8ceb35acb1a87f449ec98de7",
-      "immutableRef": "ghcr.io/hustleops/hustleops-public-backend:0.2.1@sha256:2e61ecb951a287a0487549e6602701624ba1bd5e8ceb35acb1a87f449ec98de7",
+      "digest": "sha256:c1247ead3e4379878a40251807738f5d094fb92c6f9b58133cc793939c6cde26",
+      "immutableRef": "ghcr.io/hustleops/hustleops-public-backend:0.2.4@sha256:c1247ead3e4379878a40251807738f5d094fb92c6f9b58133cc793939c6cde26",
       "verification": {
         "signature": {
           "provider": "github-actions",
           "issuer": "https://token.actions.githubusercontent.com",
-          "certificateIdentity": "https://github.com/HustleOps/HustleOps/.github/workflows/release.yml@refs/tags/v0.2.1"
+          "certificateIdentity": "https://github.com/HustleOps/HustleOps/.github/workflows/release.yml@refs/tags/v0.2.4"
         },
         "provenance": {
           "provider": "github-actions",
@@ -42,13 +43,13 @@
     },
     "frontend": {
       "name": "hustleops-public-frontend",
-      "digest": "sha256:727e1e52c405d579b6fb0e844b8e3cdfdacb33bf43455fe1c76440bc02df9911",
-      "immutableRef": "ghcr.io/hustleops/hustleops-public-frontend:0.2.1@sha256:727e1e52c405d579b6fb0e844b8e3cdfdacb33bf43455fe1c76440bc02df9911",
+      "digest": "sha256:22511e89ebf6a156d7a28d97dd9833feebbe662f13f6cbaaf15d904ba4dc2a22",
+      "immutableRef": "ghcr.io/hustleops/hustleops-public-frontend:0.2.4@sha256:22511e89ebf6a156d7a28d97dd9833feebbe662f13f6cbaaf15d904ba4dc2a22",
       "verification": {
         "signature": {
           "provider": "github-actions",
           "issuer": "https://token.actions.githubusercontent.com",
-          "certificateIdentity": "https://github.com/HustleOps/HustleOps/.github/workflows/release.yml@refs/tags/v0.2.1"
+          "certificateIdentity": "https://github.com/HustleOps/HustleOps/.github/workflows/release.yml@refs/tags/v0.2.4"
         },
         "provenance": {
           "provider": "github-actions",
@@ -62,13 +63,13 @@
     },
     "migration": {
       "name": "hustleops-public-backend-migrate",
-      "digest": "sha256:6374b280d63ba503f031de474bf7ed5f6cd8b5448965ed932867d0e906b3de88",
-      "immutableRef": "ghcr.io/hustleops/hustleops-public-backend-migrate:0.2.1@sha256:6374b280d63ba503f031de474bf7ed5f6cd8b5448965ed932867d0e906b3de88",
+      "digest": "sha256:43aafa51eb1ad6651da95d83a05e9b112ffaf01235c22b1fc84c74d48ec25b5d",
+      "immutableRef": "ghcr.io/hustleops/hustleops-public-backend-migrate:0.2.4@sha256:43aafa51eb1ad6651da95d83a05e9b112ffaf01235c22b1fc84c74d48ec25b5d",
       "verification": {
         "signature": {
           "provider": "github-actions",
           "issuer": "https://token.actions.githubusercontent.com",
-          "certificateIdentity": "https://github.com/HustleOps/HustleOps/.github/workflows/release.yml@refs/tags/v0.2.1"
+          "certificateIdentity": "https://github.com/HustleOps/HustleOps/.github/workflows/release.yml@refs/tags/v0.2.4"
         },
         "provenance": {
           "provider": "github-actions",

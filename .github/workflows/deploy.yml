@@ -1,0 +1,189 @@
+name: Deploy App
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_ref:
+        description: "Protected ref to deploy: main or vMAJOR.MINOR.PATCH"
+        required: true
+        default: main
+        type: string
+      env_file:
+        description: "Production env file path on the self-hosted runner"
+        required: true
+        default: .env
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: "24"
+  DEPLOY_REF: ${{ inputs.release_ref }}
+
+jobs:
+  build:
+    name: build
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.DEPLOY_REF }}
+          fetch-depth: 0
+
+      - name: Verify deploy source
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "$DEPLOY_REF" == "main" ]]; then
+            echo "Deploy source is protected main."
+            exit 0
+          fi
+
+          if [[ ! "$DEPLOY_REF" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Deploy source must be main or a vMAJOR.MINOR.PATCH release tag." >&2
+            exit 1
+          fi
+
+          RELEASE_TAG="$DEPLOY_REF" bash scripts/ci/verify-release-tag-from-main.sh
+
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install ShellCheck
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+
+      - name: Validate deploy bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n \
+            scripts/preflight.sh \
+            scripts/backup-postgres.sh \
+            scripts/run-migration.sh \
+            scripts/deploy.sh \
+            scripts/validate-nginx.sh \
+            scripts/ci/verify-release-tag-from-main.sh \
+            scripts/ci/verify-production-approver.sh \
+            scripts/ci/check-actions-pinning.sh
+          shellcheck \
+            scripts/preflight.sh \
+            scripts/backup-postgres.sh \
+            scripts/run-migration.sh \
+            scripts/deploy.sh \
+            scripts/validate-nginx.sh \
+            scripts/ci/verify-release-tag-from-main.sh \
+            scripts/ci/verify-production-approver.sh \
+            scripts/ci/check-actions-pinning.sh
+          node --check scripts/build-public-release-notes.mjs
+          node --check scripts/build-public-deploy-release.mjs
+          node --check scripts/update-from-contract.mjs
+          node --check scripts/make-ci-env.mjs
+          node --check scripts/validate-release-metadata.mjs
+          node scripts/make-ci-env.mjs --output .hustleops/ci.env
+          node --test tests/*.test.mjs
+          node scripts/validate-release-metadata.mjs \
+            --env-file .hustleops/ci.env \
+            --signature-plan-file .hustleops/image-signatures.tsv
+
+      - name: Render Compose configs
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker compose --env-file .hustleops/ci.env -f docker-compose.prod.yml config >/dev/null
+          docker compose --env-file .hustleops/ci.env -f docker-compose.prod.yml --profile migration config >/dev/null
+          docker compose --env-file .hustleops/ci.env -f docker-compose.prod.yml --profile bootstrap config >/dev/null
+          docker compose --env-file .hustleops/ci.env -f docker-compose.prod.yml --profile ancillary-public config >/dev/null
+
+      - name: Validate deploy dry-run
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./scripts/validate-nginx.sh
+          ./scripts/preflight.sh --env-file .hustleops/ci.env --skip-pull --skip-signature-verify
+          ./scripts/deploy.sh update \
+            --env-file .hustleops/ci.env \
+            --skip-pull \
+            --skip-signature-verify \
+            --skip-backup \
+            --skip-bootstrap \
+            --no-start \
+            --dry-run \
+            --yes
+
+  approve-production-deploy:
+    name: approve-production-deploy
+    runs-on: ubuntu-24.04
+    needs:
+      - build
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+
+      - name: Verify production deployment approver
+        shell: bash
+        env:
+          PRODUCTION_DEPLOYMENT_APPROVER: ${{ vars.PRODUCTION_DEPLOYMENT_APPROVER }}
+        run: bash scripts/ci/verify-production-approver.sh "$PRODUCTION_DEPLOYMENT_APPROVER"
+
+  deploy:
+    name: deploy
+    runs-on:
+      - self-hosted
+      - production
+    needs:
+      - build
+      - approve-production-deploy
+    environment: production
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.DEPLOY_REF }}
+          fetch-depth: 0
+
+      - name: Verify deployment source
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "$DEPLOY_REF" == "main" ]]; then
+            echo "Deploy source is protected main."
+            exit 0
+          fi
+
+          RELEASE_TAG="$DEPLOY_REF" bash scripts/ci/verify-release-tag-from-main.sh
+
+      - name: Run production preflight
+        shell: bash
+        env:
+          PRODUCTION_ENV_FILE: ${{ inputs.env_file }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "$PRODUCTION_ENV_FILE" ]]; then
+            echo "Production env file path is required." >&2
+            exit 2
+          fi
+
+          ./scripts/preflight.sh --env-file "$PRODUCTION_ENV_FILE"
+
+      - name: Deploy production update
+        shell: bash
+        env:
+          PRODUCTION_ENV_FILE: ${{ inputs.env_file }}
+        run: |
+          set -euo pipefail
+          ./scripts/deploy.sh update --env-file "$PRODUCTION_ENV_FILE" --yes

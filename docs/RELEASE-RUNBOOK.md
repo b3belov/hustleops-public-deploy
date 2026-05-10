@@ -3,18 +3,19 @@
 ## Source Of Truth
 
 - The application source repository owns application code, image publication, and the canonical release handoff contract.
-- This public repository owns the runtime deployment payload: `docker-compose.prod.yml`, mounted nginx config files, host-path directory placeholders under `data/`, and public deploy releases tagged independently as `public-deploy-vX.Y.Z`.
+- This public repository owns the runtime deployment payload: `docker-compose.prod.yml`, mounted nginx config files, host-path directory placeholders under `data/`, and protected public release tags that follow `vMAJOR.MINOR.PATCH`.
+- Release tags must be created from protected `main` through the `Create Release Tag` workflow. Older `public-deploy-vX.Y.Z` tags may exist in repository history, but the protected release harness uses `v*` tags.
 
 ## What A Release Updates
 
 1. Runtime image references for backend and frontend.
 2. The deploy payload files in this repository.
 3. Release metadata such as `release-manifest.json`, `deployment/release-trigger.txt`, and `releases/<tag>.json`.
-4. A public deploy GitHub Release after the update PR lands on `main`, with `releases/<tag>.json` attached as the source app contract. Direct repository changes also produce a new public deploy release when they land on `main`.
+4. A GitHub Release after the update PR lands on `main` and a protected `v*` tag is created, with `releases/<tag>.json` attached as the source app contract.
 
-The public deploy release version is not the application version. For example,
-`public-deploy-v0.1.3` can package source app release `v0.2.4`, and a later
-`public-deploy-v0.1.4` can contain only deployment bundle fixes.
+The protected release tag identifies the reviewed deployment bundle state. The
+checked-in release metadata and attached `releases/<tag>.json` asset identify
+the source application release contained in that bundle.
 
 ## Validation
 
@@ -37,3 +38,4 @@ docker compose --env-file .env -f docker-compose.prod.yml config
 - Roll back to a prior release by restoring the earlier image references and release metadata.
 - Use `releases/<tag>.json`, or the matching public deploy GitHub Release asset, as the immutable record for the previous rollout.
 - Re-run validation before bringing the stack back up.
+- Do not move or delete existing release tags. Rollbacks should create a new reviewed repository state and release tag when history needs to change.

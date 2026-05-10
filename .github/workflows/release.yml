@@ -1,44 +1,61 @@
-name: Release Public Deploy
+name: Release
 
 on:
   push:
-    branches:
-      - main
+    tags:
+      - "v*"
   workflow_dispatch:
     inputs:
-      bump:
-        description: "Public deploy version bump to use"
+      version:
+        description: "Release version tag to publish, for example v1.2.3"
         required: true
-        default: patch
-        type: choice
-        options:
-          - patch
-          - minor
-          - major
-      force:
-        description: "Publish a new public deploy release even when no files changed since the previous public deploy tag"
-        required: false
-        default: false
-        type: boolean
+        type: string
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: release-public-deploy-${{ github.ref }}
+  group: release-${{ inputs.version || github.ref_name }}
   cancel-in-progress: false
 
 env:
   NODE_VERSION: "24"
+  RELEASE_TAG: ${{ inputs.version || github.ref_name }}
 
 jobs:
-  release-public-deploy:
-    name: Create Public Deploy Release
+  verify-release-source:
+    name: verify-release-source
     runs-on: ubuntu-24.04
     steps:
-      - name: Checkout repository
+      - name: Check out repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
+          fetch-depth: 0
+
+      - name: Validate release tag format
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Release tag must match vMAJOR.MINOR.PATCH, for example v1.2.3." >&2
+            exit 1
+          fi
+
+      - name: Verify release tag is from main
+        shell: bash
+        run: bash scripts/ci/verify-release-tag-from-main.sh
+
+  build-release:
+    name: build-release
+    runs-on: ubuntu-24.04
+    needs:
+      - verify-release-source
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.RELEASE_TAG }}
           fetch-depth: 0
 
       - name: Set up Node.js
@@ -46,57 +63,114 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
 
+      - name: Validate release scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n \
+            scripts/preflight.sh \
+            scripts/backup-postgres.sh \
+            scripts/run-migration.sh \
+            scripts/deploy.sh \
+            scripts/validate-nginx.sh \
+            scripts/ci/verify-release-tag-from-main.sh \
+            scripts/ci/verify-production-approver.sh \
+            scripts/ci/check-actions-pinning.sh
+          node --check scripts/build-public-release-notes.mjs
+          node --check scripts/build-public-deploy-release.mjs
+          node --check scripts/update-from-contract.mjs
+          node --check scripts/make-ci-env.mjs
+          node --check scripts/validate-release-metadata.mjs
+          node --test tests/*.test.mjs
+
       - name: Validate release metadata
         shell: bash
         run: |
           set -euo pipefail
-          node --check scripts/build-public-release-notes.mjs
-          node --check scripts/build-public-deploy-release.mjs
           node scripts/make-ci-env.mjs --output .hustleops/ci.env
-          node scripts/validate-release-metadata.mjs --env-file .hustleops/ci.env
+          node scripts/validate-release-metadata.mjs \
+            --env-file .hustleops/ci.env \
+            --signature-plan-file .hustleops/image-signatures.tsv
 
-      - name: Build public deploy release notes
-        id: release
+      - name: Build release notes
         shell: bash
-        env:
-          RELEASE_BUMP: ${{ inputs.bump || 'patch' }}
-          FORCE_RELEASE: ${{ inputs.force || 'false' }}
         run: |
           set -euo pipefail
-          git fetch --force --tags origin
-          node scripts/build-public-deploy-release.mjs \
-            --bump "$RELEASE_BUMP" \
-            --force "$FORCE_RELEASE" \
-            --output .hustleops/public-deploy-release-notes.md \
+          node scripts/build-public-release-notes.mjs \
+            --output .hustleops/public-release-notes.md
+
+  approve-production-release:
+    name: approve-production-release
+    runs-on: ubuntu-24.04
+    needs:
+      - build-release
+    if: github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+
+      - name: Verify production release approver
+        shell: bash
+        env:
+          PRODUCTION_RELEASE_APPROVER: ${{ vars.PRODUCTION_RELEASE_APPROVER }}
+        run: bash scripts/ci/verify-production-approver.sh "$PRODUCTION_RELEASE_APPROVER"
+
+  publish-release:
+    name: publish-release
+    runs-on: ubuntu-24.04
+    needs:
+      - build-release
+      - approve-production-release
+    if: github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: write
+    environment: production
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Build release notes
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/build-public-release-notes.mjs \
+            --output .hustleops/public-release-notes.md \
             --github-output "$GITHUB_OUTPUT"
 
-      - name: Publish public deploy release
-        if: steps.release.outputs.should_publish == 'true'
+      - name: Publish GitHub Release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ steps.release.outputs.release_tag }}
-          RELEASE_TITLE: ${{ steps.release.outputs.release_title }}
-          RELEASE_NOTES_FILE: ${{ steps.release.outputs.release_notes_file }}
+          RELEASE_TITLE: HustleOps Public Deploy ${{ env.RELEASE_TAG }}
           RELEASE_RECORD_FILE: ${{ steps.release.outputs.release_record_file }}
-          SOURCE_RELEASE_TAG: ${{ steps.release.outputs.source_release_tag }}
         run: |
           set -euo pipefail
+
+          release_target="$(git rev-parse "refs/tags/${RELEASE_TAG}^{commit}")"
           release_assets=(release-manifest.json release-verification.json)
 
           if [[ -n "$RELEASE_RECORD_FILE" && -f "$RELEASE_RECORD_FILE" ]]; then
-            release_assets+=("${RELEASE_RECORD_FILE}#source-app-contract-${SOURCE_RELEASE_TAG}.json")
+            release_assets+=("$RELEASE_RECORD_FILE")
           fi
 
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             gh release edit "$RELEASE_TAG" \
               --title "$RELEASE_TITLE" \
-              --notes-file "$RELEASE_NOTES_FILE"
+              --notes-file .hustleops/public-release-notes.md
           else
             gh release create "$RELEASE_TAG" \
-              --target "$GITHUB_SHA" \
+              --target "$release_target" \
               --title "$RELEASE_TITLE" \
-              --notes-file "$RELEASE_NOTES_FILE"
+              --notes-file .hustleops/public-release-notes.md
           fi
 
           gh release upload "$RELEASE_TAG" "${release_assets[@]}" --clobber

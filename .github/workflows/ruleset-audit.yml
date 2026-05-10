@@ -1,0 +1,22 @@
+name: Ruleset Audit
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 9 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  audit-rulesets:
+    name: audit-rulesets
+    runs-on: ubuntu-24.04
+    steps:
+      - name: List repository rulesets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api "repos/${GITHUB_REPOSITORY}/rulesets" --jq '.[] | {name, target, enforcement, bypass_actors, conditions}'

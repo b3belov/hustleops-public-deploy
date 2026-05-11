@@ -247,6 +247,24 @@ while [[ $# -gt 0 ]]; do
       YES=1
       shift
       ;;
+    --verbosity)
+      [[ $# -ge 2 ]] || fail "Missing value for --verbosity."
+      [[ "$2" =~ ^[0-3]$ ]] || fail "--verbosity must be 0, 1, 2, or 3."
+      VERBOSITY="$2"
+      shift 2
+      ;;
+    --verbose)
+      VERBOSITY=2
+      shift
+      ;;
+    --quiet)
+      VERBOSITY=0
+      shift
+      ;;
+    --debug)
+      VERBOSITY=3
+      shift
+      ;;
 
     -h|--help)
       usage

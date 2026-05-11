@@ -16,6 +16,7 @@ TIMEOUT_SECONDS=600
 
 COMMAND=""
 WITH_ANCILLARY=0
+SKIP_N8N=0
 SKIP_PULL=0
 SKIP_SIGNATURE_VERIFY=0
 SKIP_BACKUP=0
@@ -56,6 +57,7 @@ Options:
   --backup-dir PATH
   --timeout-seconds SECONDS
   --with-ancillary
+  --skip-n8n       Skip starting n8n services (n8n, n8n-worker, n8n-postgres, n8n-redis, task-runners)
   --skip-pull
   --skip-signature-verify
   --skip-backup
@@ -213,6 +215,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --with-ancillary)
       WITH_ANCILLARY=1
+      shift
+      ;;
+    --skip-n8n)
+      SKIP_N8N=1
       shift
       ;;
     --skip-pull)
@@ -609,6 +615,25 @@ start_ancillary_services() {
     nginx-ancillary
 }
 
+start_n8n_services() {
+  if [[ "$SKIP_N8N" -eq 1 ]]; then
+    note "Skipping n8n services (--skip-n8n)"
+    return 0
+  fi
+
+  run_cmd docker compose \
+    --env-file "$ENV_FILE" \
+    -f "$COMPOSE_FILE" \
+    up \
+    -d \
+    n8n-postgres \
+    n8n-redis \
+    n8n \
+    n8n-worker \
+    task-runner-main \
+    task-runner-worker
+}
+
 show_status() {
   run_cmd docker compose \
     --env-file "$ENV_FILE" \
@@ -634,6 +659,7 @@ run_setup_flow() {
   run_bootstrap
   if [[ "$NO_START" -eq 0 ]]; then
     start_core_services
+    start_n8n_services
     start_ancillary_services
     show_status
   else
@@ -662,6 +688,7 @@ run_standard_flow() {
   if [[ "$NO_START" -eq 0 ]]; then
     step 7 7 "Starting core services"
     start_core_services
+    start_n8n_services
     start_ancillary_services
     show_status
   else
@@ -682,6 +709,7 @@ case "$COMMAND" in
     check_files
     step 2 2 "Starting core services"
     start_core_services
+    start_n8n_services
     start_ancillary_services
     show_status
     ;;

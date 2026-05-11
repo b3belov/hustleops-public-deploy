@@ -188,11 +188,10 @@ timeout "$TIMEOUT_SECONDS" docker compose \
   --profile migration \
   run \
   --rm \
-  backend-migrate >"$output_file" 2>&1
-exit_code=$?
+  -T \
+  backend-migrate 2>&1 | tee "$output_file"
+exit_code=${PIPESTATUS[0]}
 set -e
-
-print_sanitized_output "$output_file"
 
 if [[ "$exit_code" -eq 124 ]]; then
   fail "Migration timed out after $TIMEOUT_SECONDS seconds."

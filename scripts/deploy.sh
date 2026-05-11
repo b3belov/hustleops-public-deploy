@@ -34,14 +34,15 @@ VERBOSITY=1
 
 usage() {
   cat <<'EOF'
-Usage: ./scripts/deploy.sh {setup|update|start|stop|status|preflight|backup|migrate|bootstrap} [options]
+Usage: ./scripts/deploy.sh {setup|update|start|stop|down|status|preflight|backup|migrate|bootstrap} [options]
 
 Commands:
   setup       Run first-install flow: preflight, migration, bootstrap, start (no backup — fresh DB)
               Fails if PostgreSQL is already reachable (use --force to override, or use 'update' instead)
   update      Run update flow: preflight, backup, migration, bootstrap, start
   start       Start core services
-  stop        Stop services
+  stop        Stop services (containers remain, data preserved)
+  down        Stop and remove containers and networks (data volumes preserved)
   status      Show Docker Compose service status
   preflight   Run preflight checks only
   backup      Capture PostgreSQL backup only
@@ -165,7 +166,7 @@ COMMAND="$1"
 shift
 
 case "$COMMAND" in
-  setup|update|start|stop|status|preflight|backup|migrate|bootstrap)
+  setup|update|start|stop|down|status|preflight|backup|migrate|bootstrap)
     ;;
   -h|--help)
     usage
@@ -361,7 +362,7 @@ check_tools() {
 
 check_files() {
   case "$COMMAND" in
-    setup|update|preflight|backup|migrate|bootstrap|start|stop|status)
+    setup|update|preflight|backup|migrate|bootstrap|start|stop|down|status)
       require_file "$ENV_FILE" "Env file"
       require_file "$COMPOSE_FILE" "Compose file"
       ;;
@@ -719,6 +720,13 @@ case "$COMMAND" in
     check_files
     step 2 2 "Stopping services"
     run_cmd docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" stop
+    ;;
+  down)
+    step 1 2 "Checking required tools and files"
+    check_tools
+    check_files
+    step 2 2 "Removing containers and networks"
+    run_cmd docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" down
     ;;
   status)
     step 1 2 "Checking required tools and files"

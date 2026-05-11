@@ -187,11 +187,17 @@ timeout "$TIMEOUT_SECONDS" docker compose \
   -f "$COMPOSE_FILE" \
   --profile migration \
   run \
-  --rm \
   -T \
-  backend-migrate 2>&1 | tee "$output_file"
+  backend-migrate </dev/null 2>&1 | tee "$output_file"
 exit_code=${PIPESTATUS[0]}
 set -e
+
+# Remove the stopped migration container explicitly; --rm can hang on cleanup
+docker compose \
+  --env-file "$ENV_FILE" \
+  -f "$COMPOSE_FILE" \
+  --profile migration \
+  rm -f backend-migrate >/dev/null 2>&1 || true
 
 if [[ "$exit_code" -eq 124 ]]; then
   fail "Migration timed out after $TIMEOUT_SECONDS seconds."

@@ -97,7 +97,7 @@ if (!matchedOutput) {
 }
 
 const releaseTag = requireString(manifest.release?.tag, 'release.tag');
-const markerPath = migration.successMarkerPath ?? `releases/${releaseTag}.migration-success.json`;
+const markerPath = migration.successMarkerPath ?? `state/${releaseTag}.migration-success.json`;
 const markerFile = path.isAbsolute(markerPath)
   ? markerPath
   : path.join(path.dirname(manifestFile), markerPath);

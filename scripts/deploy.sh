@@ -23,15 +23,21 @@ SKIP_BOOTSTRAP=0
 NO_START=0
 DRY_RUN=0
 YES=0
-VERBOSE=0
-QUIET=0
+FORCE=0
+# Verbosity levels:
+#   0 = quiet   — errors only
+#   1 = normal  — step banners (default)
+#   2 = verbose — step banners + notable sub-actions + commands run
+#   3 = debug   — everything above + shell trace (set -x)
+VERBOSITY=1
 
 usage() {
   cat <<'EOF'
 Usage: ./scripts/deploy.sh {setup|update|start|stop|status|preflight|backup|migrate|bootstrap} [options]
 
 Commands:
-  setup       Run first-install flow: preflight, backup, migration, bootstrap, start
+  setup       Run first-install flow: preflight, migration, bootstrap, start (no backup — fresh DB)
+              Fails if PostgreSQL is already reachable (use --force to override, or use 'update' instead)
   update      Run update flow: preflight, backup, migration, bootstrap, start
   start       Start core services
   stop        Stop services
@@ -55,10 +61,13 @@ Options:
   --skip-backup
   --skip-bootstrap
   --no-start
+  --force
   --dry-run
   --yes
-  --verbose
-  --quiet
+  --verbosity N    Set verbosity level (0=quiet, 1=normal, 2=verbose, 3=debug)
+  --verbose        Alias for --verbosity 2
+  --quiet          Alias for --verbosity 0
+  --debug          Alias for --verbosity 3
   -h, --help
 
 The setup and update flows call scripts/preflight.sh, scripts/backup-postgres.sh,
@@ -74,9 +83,22 @@ fail() {
   exit "$status"
 }
 
+# note: printed at verbosity >= 1 (normal and above)
 note() {
-  [[ "$QUIET" -eq 1 ]] && return
+  [[ "$VERBOSITY" -ge 1 ]] || return
   printf '%s\n' "$*"
+}
+
+# verbose_note: printed at verbosity >= 2 (verbose and above)
+verbose_note() {
+  [[ "$VERBOSITY" -ge 2 ]] || return
+  printf '    %s\n' "$*"
+}
+
+# debug_note: printed at verbosity >= 3 (debug only)
+debug_note() {
+  [[ "$VERBOSITY" -ge 3 ]] || return
+  printf '[debug] %s\n' "$*"
 }
 
 step() {
@@ -84,7 +106,11 @@ step() {
   local total="$2"
   local message="$3"
 
-  note "[$current/$total] $message"
+  if [[ "$VERBOSITY" -ge 2 ]]; then
+    note "[$(date -u +%H:%M:%SZ)] [$current/$total] $message"
+  else
+    note "[$current/$total] $message"
+  fi
 }
 
 resolve_path() {
@@ -106,8 +132,8 @@ run_cmd() {
     return 0
   fi
 
-  if [[ "$VERBOSE" -eq 1 ]]; then
-    printf 'Running:'
+  if [[ "$VERBOSITY" -ge 2 ]]; then
+    printf '  + '
     printf ' %q' "$@"
     printf '\n'
   fi
@@ -205,6 +231,10 @@ while [[ $# -gt 0 ]]; do
       SKIP_BOOTSTRAP=1
       shift
       ;;
+    --force)
+      FORCE=1
+      shift
+      ;;
     --no-start)
       NO_START=1
       shift
@@ -217,14 +247,7 @@ while [[ $# -gt 0 ]]; do
       YES=1
       shift
       ;;
-    --verbose)
-      VERBOSE=1
-      shift
-      ;;
-    --quiet)
-      QUIET=1
-      shift
-      ;;
+
     -h|--help)
       usage
       exit 0
@@ -238,12 +261,34 @@ done
 [[ "$TIMEOUT_SECONDS" =~ ^[0-9]+$ ]] || fail "--timeout-seconds must be a positive integer."
 [[ "$TIMEOUT_SECONDS" -gt 0 ]] || fail "--timeout-seconds must be greater than zero."
 
+# Enable shell trace at debug level
+[[ "$VERBOSITY" -ge 3 ]] && set -x
+
 ENV_FILE="$(resolve_path "$ENV_FILE")"
 ENV_TEMPLATE_FILE="$(resolve_path "$ENV_TEMPLATE_FILE")"
 COMPOSE_FILE="$(resolve_path "$COMPOSE_FILE")"
 MANIFEST_FILE="$(resolve_path "$MANIFEST_FILE")"
 VERIFICATION_FILE="$(resolve_path "$VERIFICATION_FILE")"
 BACKUP_DIR="$(resolve_path "$BACKUP_DIR")"
+
+guard_setup_not_already_done() {
+  if [[ "$FORCE" -eq 1 ]]; then
+    verbose_note "Skipping DB reachability check (--force)."
+    return
+  fi
+  [[ "$DRY_RUN" -eq 1 ]] && return
+
+  verbose_note "Probing PostgreSQL to confirm this is a fresh install..."
+  if docker compose \
+    --env-file "$ENV_FILE" \
+    -f "$COMPOSE_FILE" \
+    exec \
+    -T \
+    postgres \
+    pg_isready >/dev/null 2>&1; then
+    fail "PostgreSQL is already reachable — this instance appears to have been set up previously. Run 'update' instead, or pass --force to run setup anyway."
+  fi
+}
 
 confirm_production_action() {
   [[ "$YES" -eq 1 ]] && return
@@ -333,9 +378,7 @@ sync_release_env() {
     return 0
   fi
 
-  if [[ "$VERBOSE" -eq 1 ]]; then
-    printf 'Syncing release-managed env keys from %s to %s\n' "$ENV_TEMPLATE_FILE" "$ENV_FILE"
-  fi
+  verbose_note "Syncing release-managed env keys from $ENV_TEMPLATE_FILE to $ENV_FILE"
 
   node - "$ENV_FILE" "$ENV_TEMPLATE_FILE" "${managed_keys[@]}" <<'NODE'
 const fs = require('node:fs');
@@ -499,6 +542,30 @@ show_status() {
     ps
 }
 
+run_setup_flow() {
+  confirm_production_action
+  guard_setup_not_already_done
+
+  step 1 5 "Checking required tools and files"
+  check_tools
+  check_files
+  step 2 5 "Syncing release-managed environment values"
+  sync_release_env
+  step 3 5 "Running preflight checks"
+  run_preflight
+  step 4 5 "Applying database migrations"
+  run_migration
+  step 5 5 "Running bootstrap"
+  run_bootstrap
+  if [[ "$NO_START" -eq 0 ]]; then
+    start_core_services
+    start_ancillary_services
+    show_status
+  else
+    note "Skipping service start (--no-start)"
+  fi
+}
+
 run_standard_flow() {
   confirm_production_action
 
@@ -528,7 +595,7 @@ run_standard_flow() {
 
 case "$COMMAND" in
   setup)
-    run_standard_flow
+    run_setup_flow
     ;;
   update)
     run_standard_flow

@@ -460,6 +460,62 @@ fs.writeFileSync(envFile, `${nextLines.join('\n')}\n`);
 NODE
 }
 
+sync_derived_env() {
+  # Compute POSTGRES_PASSWORD_ENCODED from POSTGRES_PASSWORD using
+  # encodeURIComponent so the value is safe to embed in a DATABASE_URL.
+  # This runs after sync_release_env so .env is already up to date.
+
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    printf 'DRY RUN: sync derived env keys (POSTGRES_PASSWORD_ENCODED) in %q\n' "$ENV_FILE"
+    return 0
+  fi
+
+  verbose_note "Computing URL-encoded database credentials..."
+
+  node - "$ENV_FILE" <<'NODE'
+const fs = require('node:fs');
+
+const [envFile] = process.argv.slice(2);
+const assignmentPattern = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/;
+
+const content = fs.readFileSync(envFile, 'utf8');
+const lines = content.replace(/\n$/, '').split(/\n/);
+
+let rawPassword = null;
+for (const line of lines) {
+  const match = line.match(assignmentPattern);
+  if (match && match[1] === 'POSTGRES_PASSWORD') {
+    rawPassword = match[2];
+    // Strip surrounding single or double quotes if present
+    if (/^".*"$/.test(rawPassword) || /^'.*'$/.test(rawPassword)) {
+      rawPassword = rawPassword.slice(1, -1);
+    }
+    break;
+  }
+}
+
+if (rawPassword === null) {
+  console.error('POSTGRES_PASSWORD not found in env file; skipping POSTGRES_PASSWORD_ENCODED derivation.');
+  process.exit(0);
+}
+
+const encoded = encodeURIComponent(rawPassword);
+const encodedKey = 'POSTGRES_PASSWORD_ENCODED';
+const encodedLine = `${encodedKey}=${encoded}`;
+
+const existingIdx = lines.findIndex((l) => l.match(assignmentPattern)?.[1] === encodedKey);
+if (existingIdx !== -1) {
+  lines[existingIdx] = encodedLine;
+} else {
+  lines.push('');
+  lines.push('# Derived: URL-safe encoding of POSTGRES_PASSWORD for use in DATABASE_URL');
+  lines.push(encodedLine);
+}
+
+fs.writeFileSync(envFile, `${lines.join('\n')}\n`);
+NODE
+}
+
 run_preflight() {
   local args=(
     "$HELPER_DIR/preflight.sh"
@@ -569,6 +625,7 @@ run_setup_flow() {
   check_files
   step 2 5 "Syncing release-managed environment values"
   sync_release_env
+  sync_derived_env
   step 3 5 "Running preflight checks"
   run_preflight
   step 4 5 "Applying database migrations"
@@ -592,6 +649,7 @@ run_standard_flow() {
   check_files
   step 2 7 "Syncing release-managed environment values"
   sync_release_env
+  sync_derived_env
   step 3 7 "Running preflight checks"
   run_preflight
   step 4 7 "Preparing PostgreSQL and capturing backup"

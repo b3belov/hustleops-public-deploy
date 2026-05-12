@@ -492,6 +492,104 @@ test("ancillary ports default to external binds", async () => {
   assert.match(compose, /\$\{ANCILLARY_DASHBOARDS_BIND:-0\.0\.0\.0\}:5601:5601/);
 });
 
+test("postgres 18 services mount persistent parent directories", async () => {
+  const compose = await readFile(path.join(projectRoot, "docker-compose.prod.yml"), "utf8");
+
+  assert.match(compose, /postgres:[^\n]*18-alpine/);
+  assert.match(compose, /n8n-postgres:[\s\S]*?image: postgres:[^\n]*18-alpine/);
+  assert.match(compose, /- \.\/data\/postgres:\/var\/lib\/postgresql$/m);
+  assert.match(compose, /- \.\/data\/n8n\/postgres:\/var\/lib\/postgresql$/m);
+  assert.doesNotMatch(compose, /\/var\/lib\/postgresql\/data\b/);
+});
+
+test("deploy start blocks legacy n8n postgres root data before compose up", async () => {
+  const tmpRoot = await mkdtemp(path.join(os.tmpdir(), "hustleops-legacy-n8n-postgres-"));
+  const envFile = path.join(tmpRoot, ".env");
+  const composeFile = path.join(tmpRoot, "docker-compose.prod.yml");
+  const legacyDataDir = path.join(tmpRoot, "data", "n8n", "postgres");
+  const fakeDockerBin = await createFakeDockerBin();
+
+  await mkdir(legacyDataDir, { recursive: true });
+  await writeFile(path.join(legacyDataDir, "PG_VERSION"), "17\n");
+  await writeFile(envFile, "HUSTLEOPS_TEST_ENV=1\n");
+  await writeFile(composeFile, "services: {}\n");
+
+  await assert.rejects(
+    execFileAsync(
+      "bash",
+      [
+        deployScript,
+        "start",
+        "--env-file",
+        envFile,
+        "--compose-file",
+        composeFile,
+        "--dry-run",
+        "--yes",
+      ],
+      {
+        cwd: projectRoot,
+        env: {
+          ...process.env,
+          HUSTLEOPS_DEPLOY_PROJECT_ROOT: tmpRoot,
+          PATH: `${fakeDockerBin}:${process.env.PATH}`,
+        },
+      },
+    ),
+    (error) => {
+      assert.equal(error.code, 1);
+      assert.match(error.stderr, /legacy root layout/);
+      assert.match(error.stderr, /data\/n8n\/postgres/);
+      assert.doesNotMatch(error.stdout, /n8n-postgres n8n-redis/);
+      return true;
+    },
+  );
+});
+
+test("deploy start blocks legacy main postgres pgdata before compose up", async () => {
+  const tmpRoot = await mkdtemp(path.join(os.tmpdir(), "hustleops-legacy-main-postgres-"));
+  const envFile = path.join(tmpRoot, ".env");
+  const composeFile = path.join(tmpRoot, "docker-compose.prod.yml");
+  const legacyDataDir = path.join(tmpRoot, "data", "postgres", "pgdata");
+  const fakeDockerBin = await createFakeDockerBin();
+
+  await mkdir(legacyDataDir, { recursive: true });
+  await writeFile(path.join(legacyDataDir, "PG_VERSION"), "18\n");
+  await writeFile(envFile, "HUSTLEOPS_TEST_ENV=1\n");
+  await writeFile(composeFile, "services: {}\n");
+
+  await assert.rejects(
+    execFileAsync(
+      "bash",
+      [
+        deployScript,
+        "start",
+        "--env-file",
+        envFile,
+        "--compose-file",
+        composeFile,
+        "--dry-run",
+        "--yes",
+      ],
+      {
+        cwd: projectRoot,
+        env: {
+          ...process.env,
+          HUSTLEOPS_DEPLOY_PROJECT_ROOT: tmpRoot,
+          PATH: `${fakeDockerBin}:${process.env.PATH}`,
+        },
+      },
+    ),
+    (error) => {
+      assert.equal(error.code, 1);
+      assert.match(error.stderr, /legacy pgdata layout/);
+      assert.match(error.stderr, /data\/postgres\/pgdata/);
+      assert.doesNotMatch(error.stdout, /backend frontend nginx/);
+      return true;
+    },
+  );
+});
+
 test("deploy debug forwards debug verbosity into preflight", async () => {
   const tmpRoot = await mkdtemp(path.join(os.tmpdir(), "hustleops-deploy-debug-"));
   const envFile = path.join(tmpRoot, ".env");

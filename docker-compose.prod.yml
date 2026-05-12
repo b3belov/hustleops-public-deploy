@@ -54,10 +54,9 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
-      PGDATA: /var/lib/postgresql/data/pgdata
     volumes:
       # Keep main HustleOps postgres data on the host filesystem.
-      - ./data/postgres:/var/lib/postgresql/data
+      - ./data/postgres:/var/lib/postgresql
       - ./logs/postgres:/var/log/hustleops:rw
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
@@ -320,7 +319,7 @@ services:
       POSTGRES_PASSWORD: ${N8N_POSTGRES_PASSWORD}
     volumes:
       # Keep n8n postgres data on the host filesystem.
-      - ./data/n8n/postgres:/var/lib/postgresql/data
+      - ./data/n8n/postgres:/var/lib/postgresql
       - ./logs/n8n-postgres:/var/log/hustleops:rw
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U n8n"]

@@ -441,6 +441,40 @@ test("preflight script includes install guidance for docker node and cosign", as
   assert.match(preflight, /Install missing tools now\? \[y\/N\]/);
 });
 
+test("deploy start dry-run prints service access addresses", async () => {
+  const tmpRoot = await mkdtemp(path.join(os.tmpdir(), "hustleops-deploy-addresses-"));
+  const envFile = path.join(tmpRoot, ".env");
+  const fakeDockerBin = await createFakeDockerBin();
+
+  await writeFile(
+    envFile,
+    [
+      "PUBLIC_HOSTNAME=ops.example.test",
+      "ANCILLARY_N8N_BIND=0.0.0.0",
+      "ANCILLARY_DASHBOARDS_BIND=0.0.0.0",
+      "",
+    ].join("\n"),
+  );
+
+  const { stdout, stderr } = await execFileAsync(
+    "bash",
+    [deployScript, "start", "--env-file", envFile, "--dry-run", "--yes"],
+    {
+      cwd: projectRoot,
+      env: {
+        ...process.env,
+        PATH: `${fakeDockerBin}:${process.env.PATH}`,
+      },
+    },
+  );
+
+  assert.equal(stderr, "");
+  assert.match(stdout, /Service access addresses:/);
+  assert.match(stdout, /HustleOps app: http:\/\/ops\.example\.test/);
+  assert.match(stdout, /n8n: http:\/\/ops\.example\.test:5678/);
+  assert.match(stdout, /OpenSearch Dashboards: http:\/\/ops\.example\.test:5601/);
+});
+
 test("pr checks workflow exposes stable required check names", async () => {
   const workflow = await readFile(path.join(projectRoot, ".github", "workflows", "pr-checks.yml"), "utf8");
 

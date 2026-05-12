@@ -631,6 +631,52 @@ fs.writeFileSync(envFile, `${lines.join('\n')}\n`);
 NODE
 }
 
+read_env_value() {
+  local key="$1"
+  local line value
+
+  [[ -f "$ENV_FILE" ]] || return 0
+
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ "$line" =~ ^[[:space:]]*# ]] && continue
+    [[ "$line" == "$key="* ]] || continue
+    value="${line#*=}"
+    if [[ "$value" =~ ^\".*\"$ || "$value" =~ ^\'.*\'$ ]]; then
+      value="${value:1:${#value}-2}"
+    fi
+    printf '%s\n' "$value"
+    return 0
+  done < "$ENV_FILE"
+}
+
+public_access_host() {
+  local configured_host
+
+  configured_host="$(read_env_value PUBLIC_HOSTNAME)"
+  if [[ -n "$configured_host" ]]; then
+    printf '%s\n' "$configured_host"
+    return 0
+  fi
+
+  printf 'server-ip-or-dns\n'
+}
+
+print_access_addresses() {
+  local host
+
+  [[ "$NO_START" -eq 0 ]] || return 0
+  host="$(public_access_host)"
+
+  note ""
+  note "Service access addresses:"
+  note "  HustleOps app: http://$host"
+
+  if [[ "$SKIP_N8N" -eq 0 && "$SKIP_ANCILLARY" -eq 0 ]]; then
+    note "  n8n: http://$host:5678"
+    note "  OpenSearch Dashboards: http://$host:5601"
+  fi
+}
+
 run_preflight() {
   local args=(
     "$HELPER_DIR/preflight.sh"
@@ -797,6 +843,7 @@ run_setup_flow() {
     start_n8n_services
     start_ancillary_services
     show_status
+    print_access_addresses
   else
     note "Skipping service start (--no-start)"
   fi
@@ -826,6 +873,7 @@ run_standard_flow() {
     start_n8n_services
     start_ancillary_services
     show_status
+    print_access_addresses
   else
     step 7 7 "Skipping service start (--no-start)"
   fi
@@ -847,6 +895,7 @@ case "$COMMAND" in
     start_n8n_services
     start_ancillary_services
     show_status
+    print_access_addresses
     ;;
   stop)
     step 1 2 "Checking required tools and files"

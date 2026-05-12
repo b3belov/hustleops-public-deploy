@@ -24,4 +24,9 @@ logs/**
 !logs/**/
 !logs/**/.gitkeep
 
+state/**
+!state/
+!state/.gitkeep
+
 /docs/superpowers
+/.devcontainer

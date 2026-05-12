@@ -16,6 +16,7 @@ TIMEOUT_SECONDS=600
 
 COMMAND=""
 WITH_ANCILLARY=0
+SKIP_N8N=0
 SKIP_PULL=0
 SKIP_SIGNATURE_VERIFY=0
 SKIP_BACKUP=0
@@ -23,18 +24,25 @@ SKIP_BOOTSTRAP=0
 NO_START=0
 DRY_RUN=0
 YES=0
-VERBOSE=0
-QUIET=0
+FORCE=0
+# Verbosity levels:
+#   0 = quiet   — errors only
+#   1 = normal  — step banners (default)
+#   2 = verbose — step banners + notable sub-actions + commands run
+#   3 = debug   — everything above + shell trace (set -x)
+VERBOSITY=1
 
 usage() {
   cat <<'EOF'
-Usage: ./scripts/deploy.sh {setup|update|start|stop|status|preflight|backup|migrate|bootstrap} [options]
+Usage: ./scripts/deploy.sh {setup|update|start|stop|down|status|preflight|backup|migrate|bootstrap} [options]
 
 Commands:
-  setup       Run first-install flow: preflight, backup, migration, bootstrap, start
+  setup       Run first-install flow: preflight, migration, bootstrap, start (no backup — fresh DB)
+              Fails if PostgreSQL is already reachable (use --force to override, or use 'update' instead)
   update      Run update flow: preflight, backup, migration, bootstrap, start
   start       Start core services
-  stop        Stop services
+  stop        Stop services (containers remain, data preserved)
+  down        Stop and remove containers and networks (data volumes preserved)
   status      Show Docker Compose service status
   preflight   Run preflight checks only
   backup      Capture PostgreSQL backup only
@@ -50,15 +58,19 @@ Options:
   --backup-dir PATH
   --timeout-seconds SECONDS
   --with-ancillary
+  --skip-n8n       Skip starting n8n services (n8n, n8n-worker, n8n-postgres, n8n-redis, task-runners)
   --skip-pull
   --skip-signature-verify
   --skip-backup
   --skip-bootstrap
   --no-start
+  --force
   --dry-run
   --yes
-  --verbose
-  --quiet
+  --verbosity N    Set verbosity level (0=quiet, 1=normal, 2=verbose, 3=debug)
+  --verbose        Alias for --verbosity 2
+  --quiet          Alias for --verbosity 0
+  --debug          Alias for --verbosity 3
   -h, --help
 
 The setup and update flows call scripts/preflight.sh, scripts/backup-postgres.sh,
@@ -74,9 +86,22 @@ fail() {
   exit "$status"
 }
 
+# note: printed at verbosity >= 1 (normal and above)
 note() {
-  [[ "$QUIET" -eq 1 ]] && return
+  [[ "$VERBOSITY" -ge 1 ]] || return
   printf '%s\n' "$*"
+}
+
+# verbose_note: printed at verbosity >= 2 (verbose and above)
+verbose_note() {
+  [[ "$VERBOSITY" -ge 2 ]] || return
+  printf '    %s\n' "$*"
+}
+
+# debug_note: printed at verbosity >= 3 (debug only)
+debug_note() {
+  [[ "$VERBOSITY" -ge 3 ]] || return
+  printf '[debug] %s\n' "$*"
 }
 
 step() {
@@ -84,7 +109,11 @@ step() {
   local total="$2"
   local message="$3"
 
-  note "[$current/$total] $message"
+  if [[ "$VERBOSITY" -ge 2 ]]; then
+    note "[$(date -u +%H:%M:%SZ)] [$current/$total] $message"
+  else
+    note "[$current/$total] $message"
+  fi
 }
 
 resolve_path() {
@@ -106,8 +135,8 @@ run_cmd() {
     return 0
   fi
 
-  if [[ "$VERBOSE" -eq 1 ]]; then
-    printf 'Running:'
+  if [[ "$VERBOSITY" -ge 2 ]]; then
+    printf '  + '
     printf ' %q' "$@"
     printf '\n'
   fi
@@ -150,7 +179,7 @@ COMMAND="$1"
 shift
 
 case "$COMMAND" in
-  setup|update|start|stop|status|preflight|backup|migrate|bootstrap)
+  setup|update|start|stop|down|status|preflight|backup|migrate|bootstrap)
     ;;
   -h|--help)
     usage
@@ -202,6 +231,10 @@ while [[ $# -gt 0 ]]; do
       WITH_ANCILLARY=1
       shift
       ;;
+    --skip-n8n)
+      SKIP_N8N=1
+      shift
+      ;;
     --skip-pull)
       SKIP_PULL=1
       shift
@@ -218,6 +251,10 @@ while [[ $# -gt 0 ]]; do
       SKIP_BOOTSTRAP=1
       shift
       ;;
+    --force)
+      FORCE=1
+      shift
+      ;;
     --no-start)
       NO_START=1
       shift
@@ -230,14 +267,25 @@ while [[ $# -gt 0 ]]; do
       YES=1
       shift
       ;;
+    --verbosity)
+      [[ $# -ge 2 ]] || fail "Missing value for --verbosity."
+      [[ "$2" =~ ^[0-3]$ ]] || fail "--verbosity must be 0, 1, 2, or 3."
+      VERBOSITY="$2"
+      shift 2
+      ;;
     --verbose)
-      VERBOSE=1
+      VERBOSITY=2
       shift
       ;;
     --quiet)
-      QUIET=1
+      VERBOSITY=0
       shift
       ;;
+    --debug)
+      VERBOSITY=3
+      shift
+      ;;
+
     -h|--help)
       usage
       exit 0
@@ -251,12 +299,34 @@ done
 [[ "$TIMEOUT_SECONDS" =~ ^[0-9]+$ ]] || fail "--timeout-seconds must be a positive integer."
 [[ "$TIMEOUT_SECONDS" -gt 0 ]] || fail "--timeout-seconds must be greater than zero."
 
+# Enable shell trace at debug level
+[[ "$VERBOSITY" -ge 3 ]] && set -x
+
 ENV_FILE="$(resolve_path "$ENV_FILE")"
 ENV_TEMPLATE_FILE="$(resolve_path "$ENV_TEMPLATE_FILE")"
 COMPOSE_FILE="$(resolve_path "$COMPOSE_FILE")"
 MANIFEST_FILE="$(resolve_path "$MANIFEST_FILE")"
 VERIFICATION_FILE="$(resolve_path "$VERIFICATION_FILE")"
 BACKUP_DIR="$(resolve_path "$BACKUP_DIR")"
+
+guard_setup_not_already_done() {
+  if [[ "$FORCE" -eq 1 ]]; then
+    verbose_note "Skipping DB reachability check (--force)."
+    return
+  fi
+  [[ "$DRY_RUN" -eq 1 ]] && return
+
+  verbose_note "Probing PostgreSQL to confirm this is a fresh install..."
+  if docker compose \
+    --env-file "$ENV_FILE" \
+    -f "$COMPOSE_FILE" \
+    exec \
+    -T \
+    postgres \
+    pg_isready >/dev/null 2>&1; then
+    fail "PostgreSQL is already reachable — this instance appears to have been set up previously. Run 'update' instead, or pass --force to run setup anyway."
+  fi
+}
 
 confirm_production_action() {
   [[ "$YES" -eq 1 ]] && return
@@ -273,7 +343,25 @@ confirm_production_action() {
   esac
 }
 
+ensure_dind_mounts() {
+  # In dev-container environments where the project root is backed by a fakeowner
+  # (Docker Desktop host-sharing) FUSE filesystem, the Docker daemon cannot
+  # bind-mount paths from that filesystem.  Delegate to setup-dind.sh, which
+  # replaces each bind-mount source path with a symlink to a native location.
+  grep -q 'fakeowner' /proc/mounts 2>/dev/null || return 0
+
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    printf 'DRY RUN: would run setup-dind.sh to shadow bind-mount sources (fakeowner detected)\n'
+    return 0
+  fi
+
+  debug_note "fakeowner detected — running setup-dind.sh"
+  "$HELPER_DIR/setup-dind.sh" --project-root "$PROJECT_ROOT"
+}
+
 check_tools() {
+  ensure_dind_mounts
+
   require_command docker
 
   if [[ "$DRY_RUN" -eq 0 ]]; then
@@ -305,7 +393,7 @@ check_tools() {
 
 check_files() {
   case "$COMMAND" in
-    setup|update|preflight|backup|migrate|bootstrap|start|stop|status)
+    setup|update|preflight|backup|migrate|bootstrap|start|stop|down|status)
       require_file "$ENV_FILE" "Env file"
       require_file "$COMPOSE_FILE" "Compose file"
       ;;
@@ -346,9 +434,7 @@ sync_release_env() {
     return 0
   fi
 
-  if [[ "$VERBOSE" -eq 1 ]]; then
-    printf 'Syncing release-managed env keys from %s to %s\n' "$ENV_TEMPLATE_FILE" "$ENV_FILE"
-  fi
+  verbose_note "Syncing release-managed env keys from $ENV_TEMPLATE_FILE to $ENV_FILE"
 
   node - "$ENV_FILE" "$ENV_TEMPLATE_FILE" "${managed_keys[@]}" <<'NODE'
 const fs = require('node:fs');
@@ -409,6 +495,62 @@ if (missingEnvKeys.length > 0) {
 }
 
 fs.writeFileSync(envFile, `${nextLines.join('\n')}\n`);
+NODE
+}
+
+sync_derived_env() {
+  # Compute POSTGRES_PASSWORD_ENCODED from POSTGRES_PASSWORD using
+  # encodeURIComponent so the value is safe to embed in a DATABASE_URL.
+  # This runs after sync_release_env so .env is already up to date.
+
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    printf 'DRY RUN: sync derived env keys (POSTGRES_PASSWORD_ENCODED) in %q\n' "$ENV_FILE"
+    return 0
+  fi
+
+  verbose_note "Computing URL-encoded database credentials..."
+
+  node - "$ENV_FILE" <<'NODE'
+const fs = require('node:fs');
+
+const [envFile] = process.argv.slice(2);
+const assignmentPattern = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/;
+
+const content = fs.readFileSync(envFile, 'utf8');
+const lines = content.replace(/\n$/, '').split(/\n/);
+
+let rawPassword = null;
+for (const line of lines) {
+  const match = line.match(assignmentPattern);
+  if (match && match[1] === 'POSTGRES_PASSWORD') {
+    rawPassword = match[2];
+    // Strip surrounding single or double quotes if present
+    if (/^".*"$/.test(rawPassword) || /^'.*'$/.test(rawPassword)) {
+      rawPassword = rawPassword.slice(1, -1);
+    }
+    break;
+  }
+}
+
+if (rawPassword === null) {
+  console.error('POSTGRES_PASSWORD not found in env file; skipping POSTGRES_PASSWORD_ENCODED derivation.');
+  process.exit(0);
+}
+
+const encoded = encodeURIComponent(rawPassword);
+const encodedKey = 'POSTGRES_PASSWORD_ENCODED';
+const encodedLine = `${encodedKey}=${encoded}`;
+
+const existingIdx = lines.findIndex((l) => l.match(assignmentPattern)?.[1] === encodedKey);
+if (existingIdx !== -1) {
+  lines[existingIdx] = encodedLine;
+} else {
+  lines.push('');
+  lines.push('# Derived: URL-safe encoding of POSTGRES_PASSWORD for use in DATABASE_URL');
+  lines.push(encodedLine);
+}
+
+fs.writeFileSync(envFile, `${lines.join('\n')}\n`);
 NODE
 }
 
@@ -509,11 +651,56 @@ start_ancillary_services() {
     nginx-ancillary
 }
 
+start_n8n_services() {
+  if [[ "$SKIP_N8N" -eq 1 ]]; then
+    note "Skipping n8n services (--skip-n8n)"
+    return 0
+  fi
+
+  run_cmd docker compose \
+    --env-file "$ENV_FILE" \
+    -f "$COMPOSE_FILE" \
+    up \
+    -d \
+    n8n-postgres \
+    n8n-redis \
+    n8n \
+    n8n-worker \
+    task-runner-main \
+    task-runner-worker
+}
+
 show_status() {
   run_cmd docker compose \
     --env-file "$ENV_FILE" \
     -f "$COMPOSE_FILE" \
     ps
+}
+
+run_setup_flow() {
+  confirm_production_action
+  guard_setup_not_already_done
+
+  step 1 5 "Checking required tools and files"
+  check_tools
+  check_files
+  step 2 5 "Syncing release-managed environment values"
+  sync_release_env
+  sync_derived_env
+  step 3 5 "Running preflight checks"
+  run_preflight
+  step 4 5 "Applying database migrations"
+  run_migration
+  step 5 5 "Running bootstrap"
+  run_bootstrap
+  if [[ "$NO_START" -eq 0 ]]; then
+    start_core_services
+    start_n8n_services
+    start_ancillary_services
+    show_status
+  else
+    note "Skipping service start (--no-start)"
+  fi
 }
 
 run_standard_flow() {
@@ -524,6 +711,7 @@ run_standard_flow() {
   check_files
   step 2 7 "Syncing release-managed environment values"
   sync_release_env
+  sync_derived_env
   step 3 7 "Running preflight checks"
   run_preflight
   step 4 7 "Preparing PostgreSQL and capturing backup"
@@ -536,6 +724,7 @@ run_standard_flow() {
   if [[ "$NO_START" -eq 0 ]]; then
     step 7 7 "Starting core services"
     start_core_services
+    start_n8n_services
     start_ancillary_services
     show_status
   else
@@ -545,7 +734,7 @@ run_standard_flow() {
 
 case "$COMMAND" in
   setup)
-    run_standard_flow
+    run_setup_flow
     ;;
   update)
     run_standard_flow
@@ -556,6 +745,7 @@ case "$COMMAND" in
     check_files
     step 2 2 "Starting core services"
     start_core_services
+    start_n8n_services
     start_ancillary_services
     show_status
     ;;
@@ -565,6 +755,13 @@ case "$COMMAND" in
     check_files
     step 2 2 "Stopping services"
     run_cmd docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" stop
+    ;;
+  down)
+    step 1 2 "Checking required tools and files"
+    check_tools
+    check_files
+    step 2 2 "Removing containers and networks"
+    run_cmd docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" down
     ;;
   status)
     step 1 2 "Checking required tools and files"

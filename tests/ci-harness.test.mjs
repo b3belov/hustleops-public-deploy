@@ -53,6 +53,7 @@ async function runVerifyTag(repoRoot, tagName, extraEnv = {}) {
     cwd: repoRoot,
     env: {
       ...process.env,
+      RELEASE_TAG: "",
       GITHUB_REF_NAME: tagName,
       ...extraEnv,
     },
@@ -299,6 +300,12 @@ test("release workflow has protected manual publish graph", async () => {
   assert.match(workflow, /PRODUCTION_RELEASE_APPROVER/);
 });
 
+test("release workflow isolates tests from the release tag environment", async () => {
+  const workflow = await readFile(path.join(projectRoot, ".github", "workflows", "release.yml"), "utf8");
+
+  assert.match(workflow, /RELEASE_TAG='' node --test tests\/\*\.test\.mjs/);
+});
+
 test("only publish-release workflow job requests contents write", async () => {
   const workflowDir = path.join(projectRoot, ".github", "workflows");
   const workflowFiles = (await readdir(workflowDir)).filter((fileName) => /\.(ya?ml)$/.test(fileName));
@@ -347,15 +354,21 @@ test("workflow job display names are stable lowercase kebab-case", async () => {
   }
 });
 
-test("create-release-tag workflow uses approver and deploy-key gates", async () => {
+test("create-release-tag workflow uses approver and GitHub App gates", async () => {
   const workflow = await readFile(path.join(projectRoot, ".github", "workflows", "create-release-tag.yml"), "utf8");
 
   assert.match(workflow, /permissions:\n  contents: read/);
   assert.match(workflow, /persist-credentials: false/);
   assert.match(workflow, /RELEASE_TAG_APPROVER/);
-  assert.match(workflow, /RELEASE_TAG_DEPLOY_KEY/);
+  assert.match(workflow, /actions\/create-github-app-token@[0-9a-f]{40}/);
+  assert.match(workflow, /RELEASE_TAG_APP_ID/);
+  assert.match(workflow, /RELEASE_TAG_APP_PRIVATE_KEY/);
+  assert.match(workflow, /permission-contents: write/);
   assert.match(workflow, /git tag -a "\$VERSION" -m "Release \$VERSION"/);
-  assert.doesNotMatch(workflow, /contents: write/);
+  assert.match(workflow, /RELEASE_TAG_TOKEN: \$\{\{ steps\.release-tag-token\.outputs\.token \}\}/);
+  assert.match(workflow, /x-access-token:\$\{RELEASE_TAG_TOKEN\}@github\.com/);
+  assert.doesNotMatch(workflow, /RELEASE_TAG_DEPLOY_KEY/);
+  assert.doesNotMatch(workflow, /permissions:\n  contents: write/);
 });
 
 test("required workflow files expose stable names and jobs", async () => {

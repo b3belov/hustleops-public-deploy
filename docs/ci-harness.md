@@ -47,9 +47,9 @@ unchecked feature branch -> manual v1.2.3 tag -> release workflow -> production 
 
 ## Release Tag Creation
 
-`.github/workflows/create-release-tag.yml` is the preferred release tag creation path. It accepts `version`, validates `vMAJOR.MINOR.PATCH`, checks out `main` with persisted credentials disabled, verifies `RELEASE_TAG_APPROVER`, rejects existing tags, creates an annotated tag, and pushes it with `RELEASE_TAG_DEPLOY_KEY`. The workflow keeps `contents: read` because tag creation uses the dedicated deploy key instead of broad `GITHUB_TOKEN` write permissions.
+`.github/workflows/create-release-tag.yml` is the preferred release tag creation path. It accepts `version`, validates `vMAJOR.MINOR.PATCH`, checks out `main` with persisted credentials disabled, verifies `RELEASE_TAG_APPROVER`, rejects existing tags, creates an annotated tag, and pushes it with a dedicated release-tag GitHub App token. The workflow keeps `contents: read` for the default `GITHUB_TOKEN`; only the App installation token receives `contents: write` for the tag push.
 
-For repositories with protected `v*` tag creation, configure `RELEASE_TAG_DEPLOY_KEY` as a repository secret containing a dedicated write deploy key that is allowed to create release tags. Configure `RELEASE_TAG_APPROVER` as a repo or org variable containing the GitHub username allowed to create release tags.
+For repositories with protected `v*` tag creation, configure `RELEASE_TAG_APP_ID` as a repo or org variable and `RELEASE_TAG_APP_PRIVATE_KEY` as a repository secret for a dedicated GitHub App that is allowed to create release tags. Configure `RELEASE_TAG_APPROVER` as a repo or org variable containing the GitHub username allowed to request release tag creation.
 
 ## GitHub Actions Hardening
 
@@ -97,5 +97,5 @@ permissions:
 - Do not expose production secrets to untrusted branches or forked PRs.
 - Put production secrets only in the protected `production` environment.
 - Keep release verification and build jobs free of production secrets.
-- Keep release tag deploy keys separate from production runtime secrets.
+- Keep release-tag GitHub App private keys separate from production runtime secrets.
 - Configure `PUBLIC_DEPLOY_UPDATE_DEPLOY_KEY` only if the manual `Update From Release Contract` workflow should be able to push automation update branches.

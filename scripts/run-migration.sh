@@ -97,7 +97,7 @@ if (!matchedOutput) {
 }
 
 const releaseTag = requireString(manifest.release?.tag, 'release.tag');
-const markerPath = migration.successMarkerPath ?? `releases/${releaseTag}.migration-success.json`;
+const markerPath = migration.successMarkerPath ?? `state/${releaseTag}.migration-success.json`;
 const markerFile = path.isAbsolute(markerPath)
   ? markerPath
   : path.join(path.dirname(manifestFile), markerPath);
@@ -187,12 +187,17 @@ timeout "$TIMEOUT_SECONDS" docker compose \
   -f "$COMPOSE_FILE" \
   --profile migration \
   run \
-  --rm \
-  backend-migrate >"$output_file" 2>&1
-exit_code=$?
+  -T \
+  backend-migrate </dev/null 2>&1 | tee "$output_file"
+exit_code=${PIPESTATUS[0]}
 set -e
 
-print_sanitized_output "$output_file"
+# Remove the stopped migration container explicitly; --rm can hang on cleanup
+docker compose \
+  --env-file "$ENV_FILE" \
+  -f "$COMPOSE_FILE" \
+  --profile migration \
+  rm -f backend-migrate >/dev/null 2>&1 || true
 
 if [[ "$exit_code" -eq 124 ]]; then
   fail "Migration timed out after $TIMEOUT_SECONDS seconds."

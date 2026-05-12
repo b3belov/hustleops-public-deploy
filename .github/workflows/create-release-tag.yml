@@ -57,28 +57,69 @@ jobs:
           RELEASE_TAG_APPROVER: ${{ vars.RELEASE_TAG_APPROVER }}
         run: bash scripts/ci/verify-production-approver.sh "$RELEASE_TAG_APPROVER"
 
+      - name: Verify release tag GitHub App configuration
+        shell: bash
+        env:
+          RELEASE_TAG_APP_ID: ${{ vars.RELEASE_TAG_APP_ID }}
+          RELEASE_TAG_APP_PRIVATE_KEY: ${{ secrets.RELEASE_TAG_APP_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "$RELEASE_TAG_APP_ID" ]]; then
+            echo "RELEASE_TAG_APP_ID is required to create protected release tags." >&2
+            exit 2
+          fi
+
+          if [[ -z "$RELEASE_TAG_APP_PRIVATE_KEY" ]]; then
+            echo "RELEASE_TAG_APP_PRIVATE_KEY is required to create protected release tags." >&2
+            exit 2
+          fi
+
+      - name: Create release tag GitHub App token
+        id: release-tag-token
+        uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3
+        with:
+          app-id: ${{ vars.RELEASE_TAG_APP_ID }}
+          private-key: ${{ secrets.RELEASE_TAG_APP_PRIVATE_KEY }}
+          permission-contents: write
+
+      - name: Resolve release tag app bot identity
+        id: release-tag-bot
+        shell: bash
+        env:
+          APP_SLUG: ${{ steps.release-tag-token.outputs.app-slug }}
+          GH_TOKEN: ${{ steps.release-tag-token.outputs.token }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "$APP_SLUG" ]]; then
+            echo "Release tag GitHub App slug is required." >&2
+            exit 2
+          fi
+
+          user_id="$(gh api "/users/${APP_SLUG}[bot]" --jq .id)"
+          echo "name=${APP_SLUG}[bot]" >> "$GITHUB_OUTPUT"
+          echo "email=${user_id}+${APP_SLUG}[bot]@users.noreply.github.com" >> "$GITHUB_OUTPUT"
+
       - name: Create and push annotated release tag
         shell: bash
         env:
           VERSION: ${{ inputs.version }}
-          RELEASE_TAG_DEPLOY_KEY: ${{ secrets.RELEASE_TAG_DEPLOY_KEY }}
+          RELEASE_TAG_TOKEN: ${{ steps.release-tag-token.outputs.token }}
           REPOSITORY: ${{ github.repository }}
+          TAGGER_NAME: ${{ steps.release-tag-bot.outputs.name }}
+          TAGGER_EMAIL: ${{ steps.release-tag-bot.outputs.email }}
         run: |
           set -euo pipefail
 
-          if [[ -z "$RELEASE_TAG_DEPLOY_KEY" ]]; then
-            echo "RELEASE_TAG_DEPLOY_KEY is required to create protected release tags." >&2
+          if [[ -z "$RELEASE_TAG_TOKEN" ]]; then
+            echo "Release tag GitHub App token is required to create protected release tags." >&2
             exit 2
           fi
 
-          install -m 700 -d ~/.ssh
-          printf '%s\n' "$RELEASE_TAG_DEPLOY_KEY" > ~/.ssh/release-tag-deploy-key
-          chmod 600 ~/.ssh/release-tag-deploy-key
-          ssh-keyscan github.com >> ~/.ssh/known_hosts
-
           git checkout --detach refs/remotes/origin/main
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.name "$TAGGER_NAME"
+          git config user.email "$TAGGER_EMAIL"
           git tag -a "$VERSION" -m "Release $VERSION"
-          git remote set-url origin "git@github.com:${REPOSITORY}.git"
-          GIT_SSH_COMMAND="ssh -i $HOME/.ssh/release-tag-deploy-key -o IdentitiesOnly=yes" git push origin "refs/tags/${VERSION}"
+          git remote set-url origin "https://x-access-token:${RELEASE_TAG_TOKEN}@github.com/${REPOSITORY}.git"
+          git push origin "refs/tags/${VERSION}"

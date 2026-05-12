@@ -94,6 +94,20 @@ COMPOSE_PROFILES=ancillary-public docker compose --env-file .env -f docker-compo
 `--with-ancillary` publishes n8n on port `5678` and OpenSearch Dashboards on port `5601`.
 Only use non-localhost `ANCILLARY_N8N_BIND` or `ANCILLARY_DASHBOARDS_BIND` values behind a trusted network boundary such as VPN, private firewall rules, SSO-capable reverse proxy, or equivalent access control.
 
+## Starting and Stopping
+
+Stop services (containers remain, data is preserved):
+
+```bash
+./scripts/deploy.sh stop --env-file .env
+```
+
+Bring down containers and networks entirely (data volumes are preserved):
+
+```bash
+./scripts/deploy.sh down --env-file .env
+```
+
 ## Rollback
 
 Use the previous release entry under `releases/`, restore the matching image refs in `.env`, run preflight checks, and roll services forward or backward only after confirming database compatibility.

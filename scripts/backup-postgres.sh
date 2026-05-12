@@ -160,6 +160,23 @@ backup_file="$OUTPUT_DIR/${safe_tag}-${timestamp}.postgres.dump"
 
 mkdir -p "$OUTPUT_DIR"
 
+note "Waiting for PostgreSQL to be ready..."
+max_attempts=30
+attempt=0
+until docker compose \
+  --env-file "$ENV_FILE" \
+  -f "$COMPOSE_FILE" \
+  exec \
+  -T \
+  postgres \
+  pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB" >/dev/null 2>&1; do
+  attempt=$((attempt + 1))
+  if [[ "$attempt" -ge "$max_attempts" ]]; then
+    fail "PostgreSQL did not become ready after ${max_attempts} seconds."
+  fi
+  sleep 1
+done
+
 note "Capturing PostgreSQL backup for $RELEASE_TAG"
 if ! docker compose \
   --env-file "$ENV_FILE" \

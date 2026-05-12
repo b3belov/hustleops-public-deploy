@@ -52,6 +52,7 @@ async function runVerifyTag(repoRoot, tagName, extraEnv = {}) {
     cwd: repoRoot,
     env: {
       ...process.env,
+      RELEASE_TAG: "",
       GITHUB_REF_NAME: tagName,
       ...extraEnv,
     },

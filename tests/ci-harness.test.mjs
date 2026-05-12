@@ -281,6 +281,90 @@ test("deploy start dry-run prepares Redis data directories before Compose starts
   );
 });
 
+test("deploy start dry-run starts ancillary proxy by default", async () => {
+  const tmpRoot = await mkdtemp(path.join(os.tmpdir(), "hustleops-deploy-ancillary-"));
+  const envFile = path.join(tmpRoot, ".env");
+  const fakeDockerBin = await createFakeDockerBin();
+
+  await writeFile(envFile, "HUSTLEOPS_TEST_ENV=1\n");
+
+  const { stdout, stderr } = await execFileAsync(
+    "bash",
+    [deployScript, "start", "--env-file", envFile, "--dry-run", "--yes"],
+    {
+      cwd: projectRoot,
+      env: {
+        ...process.env,
+        PATH: `${fakeDockerBin}:${process.env.PATH}`,
+      },
+    },
+  );
+
+  assert.equal(stderr, "");
+  assert.match(stdout, /DRY RUN: mkdir -p .*data\/n8n\/redis/);
+  assert.match(stdout, /docker compose [\s\S]*--profile ancillary-public[\s\S]* up [\s\S]* nginx-ancillary/);
+  assert.doesNotMatch(stdout, /Skipping ancillary services/);
+});
+
+test("deploy start dry-run can skip ancillary proxy explicitly", async () => {
+  const tmpRoot = await mkdtemp(path.join(os.tmpdir(), "hustleops-deploy-skip-ancillary-"));
+  const envFile = path.join(tmpRoot, ".env");
+  const fakeDockerBin = await createFakeDockerBin();
+
+  await writeFile(envFile, "HUSTLEOPS_TEST_ENV=1\n");
+
+  const { stdout, stderr } = await execFileAsync(
+    "bash",
+    [deployScript, "start", "--env-file", envFile, "--dry-run", "--yes", "--skip-ancillary"],
+    {
+      cwd: projectRoot,
+      env: {
+        ...process.env,
+        PATH: `${fakeDockerBin}:${process.env.PATH}`,
+      },
+    },
+  );
+
+  assert.equal(stderr, "");
+  assert.match(stdout, /Skipping ancillary services \(\-\-skip-ancillary\)/);
+  assert.doesNotMatch(stdout, /--profile ancillary-public[\s\S]* nginx-ancillary/);
+});
+
+test("deploy start dry-run skip-n8n also skips ancillary proxy", async () => {
+  const tmpRoot = await mkdtemp(path.join(os.tmpdir(), "hustleops-deploy-skip-n8n-"));
+  const envFile = path.join(tmpRoot, ".env");
+  const fakeDockerBin = await createFakeDockerBin();
+
+  await writeFile(envFile, "HUSTLEOPS_TEST_ENV=1\n");
+
+  const { stdout, stderr } = await execFileAsync(
+    "bash",
+    [deployScript, "start", "--env-file", envFile, "--dry-run", "--yes", "--skip-n8n"],
+    {
+      cwd: projectRoot,
+      env: {
+        ...process.env,
+        PATH: `${fakeDockerBin}:${process.env.PATH}`,
+      },
+    },
+  );
+
+  assert.equal(stderr, "");
+  assert.match(stdout, /Skipping n8n services \(\-\-skip-n8n\)/);
+  assert.match(stdout, /Skipping ancillary services because n8n was skipped/);
+  assert.doesNotMatch(stdout, /--profile ancillary-public[\s\S]* nginx-ancillary/);
+});
+
+test("ancillary ports default to external binds", async () => {
+  const envExample = await readFile(path.join(projectRoot, ".env.example"), "utf8");
+  const compose = await readFile(path.join(projectRoot, "docker-compose.prod.yml"), "utf8");
+
+  assert.match(envExample, /^ANCILLARY_N8N_BIND=0\.0\.0\.0$/m);
+  assert.match(envExample, /^ANCILLARY_DASHBOARDS_BIND=0\.0\.0\.0$/m);
+  assert.match(compose, /\$\{ANCILLARY_N8N_BIND:-0\.0\.0\.0\}:5678:5678/);
+  assert.match(compose, /\$\{ANCILLARY_DASHBOARDS_BIND:-0\.0\.0\.0\}:5601:5601/);
+});
+
 test("pr checks workflow exposes stable required check names", async () => {
   const workflow = await readFile(path.join(projectRoot, ".github", "workflows", "pr-checks.yml"), "utf8");
 

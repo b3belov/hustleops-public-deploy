@@ -260,6 +260,12 @@ test("release workflow has protected manual publish graph", async () => {
   assert.match(workflow, /PRODUCTION_RELEASE_APPROVER/);
 });
 
+test("release workflow isolates tests from the release tag environment", async () => {
+  const workflow = await readFile(path.join(projectRoot, ".github", "workflows", "release.yml"), "utf8");
+
+  assert.match(workflow, /RELEASE_TAG='' node --test tests\/\*\.test\.mjs/);
+});
+
 test("only publish-release workflow job requests contents write", async () => {
   const workflowDir = path.join(projectRoot, ".github", "workflows");
   const workflowFiles = (await readdir(workflowDir)).filter((fileName) => /\.(ya?ml)$/.test(fileName));

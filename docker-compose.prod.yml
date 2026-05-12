@@ -84,6 +84,8 @@ services:
   opensearch:
     image: opensearchproject/opensearch:2@sha256:3a73623acf3cdd566ad7d0c6c06190a528e6b8a5d54fe1f4327258e32bd8df26
     restart: unless-stopped
+    profiles:
+      - ancillary-public
     environment:
       cluster.name: hustleops-cluster
       node.name: hustleops-node
@@ -117,6 +119,8 @@ services:
   opensearch-dashboards:
     image: opensearchproject/opensearch-dashboards:2@sha256:a91b1f377e724b9759e8af7bab1c2bdc19cbb44542bdc6bef9e4f4e03e8613f1
     restart: unless-stopped
+    profiles:
+      - ancillary-public
     environment:
       OPENSEARCH_HOSTS: '["https://opensearch:9200"]'
       OPENSEARCH_USERNAME: admin
@@ -167,8 +171,6 @@ services:
       postgres:
         condition: service_healthy
       redis:
-        condition: service_healthy
-      opensearch:
         condition: service_healthy
     healthcheck:
       test:
@@ -266,6 +268,7 @@ services:
       start_period: 10s
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/security-headers-no-csp.conf:/etc/nginx/security-headers-no-csp.conf:ro
       - ./nginx/security-headers.conf:/etc/nginx/security-headers.conf:ro
       - ./logs/nginx:/var/log/hustleops:rw
     ports:
@@ -296,6 +299,7 @@ services:
       start_period: 10s
     volumes:
       - ./nginx/nginx.ancillary.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/security-headers-no-csp.conf:/etc/nginx/security-headers-no-csp.conf:ro
       - ./nginx/security-headers.conf:/etc/nginx/security-headers.conf:ro
       - ./logs/nginx-ancillary:/var/log/hustleops:rw
     ports:
@@ -303,7 +307,7 @@ services:
       - "${ANCILLARY_DASHBOARDS_BIND:-0.0.0.0}:5601:5601"
     depends_on:
       n8n:
-        condition: service_started
+        condition: service_healthy
       opensearch-dashboards:
         condition: service_started
     networks:
@@ -353,6 +357,18 @@ services:
       # Keep workflows, credentials, and execution metadata across redeploys.
       - ./data/n8n/app:/home/node/.n8n
       - ./logs/n8n:/var/log/hustleops:rw
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:5678/healthz/readiness').then((response) => { if (!response.ok) process.exit(1); }).catch(() => process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
     networks:
       - n8n-network
       - shared-network

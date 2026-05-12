@@ -81,6 +81,7 @@ BIND_SOURCES=(
 
   # nginx config files — read-only mounts; copied to native filesystem.
   "file:nginx/nginx.conf"
+  "file:nginx/security-headers-no-csp.conf"
   "file:nginx/security-headers.conf"
   "file:nginx/nginx.ancillary.conf"
 )

@@ -22,11 +22,13 @@ validate_config() {
     --add-host n8n:127.0.0.1 \
     --add-host opensearch-dashboards:127.0.0.1 \
     -v "$PROJECT_ROOT/$config_file:/etc/nginx/nginx.conf:ro" \
+    -v "$PROJECT_ROOT/nginx/security-headers-no-csp.conf:/etc/nginx/security-headers-no-csp.conf:ro" \
     -v "$PROJECT_ROOT/nginx/security-headers.conf:/etc/nginx/security-headers.conf:ro" \
     "$NGINX_IMAGE" nginx -t
 }
 
 command -v docker >/dev/null 2>&1 || fail "docker must be installed and on PATH."
+[[ -f "$PROJECT_ROOT/nginx/security-headers-no-csp.conf" ]] || fail "nginx no-CSP security headers config not found."
 [[ -f "$PROJECT_ROOT/nginx/security-headers.conf" ]] || fail "nginx security headers config not found."
 
 validate_config "nginx/nginx.conf"

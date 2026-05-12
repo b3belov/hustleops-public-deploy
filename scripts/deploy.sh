@@ -34,6 +34,7 @@ FORCE=0
 #   3 = debug   — everything above + shell trace (set -x)
 VERBOSITY=1
 OPENSEARCH_CONTAINER_OWNER="1000:1000"
+N8N_CONTAINER_OWNER="1000:1000"
 
 usage() {
   cat <<'EOF'
@@ -260,6 +261,26 @@ prepare_opensearch_data_dir() {
   if [[ "$current_owner" != "$OPENSEARCH_CONTAINER_OWNER" ]]; then
     verbose_note "Setting $label data directory ownership to $OPENSEARCH_CONTAINER_OWNER"
     run_chown_recursive "$OPENSEARCH_CONTAINER_OWNER" "$data_dir"
+  fi
+}
+
+prepare_n8n_app_data_dir() {
+  local data_dir="$1"
+  local current_owner
+
+  run_cmd mkdir -p "$data_dir"
+  run_rm_f "$data_dir/.gitkeep"
+
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    run_chown_recursive "$N8N_CONTAINER_OWNER" "$data_dir"
+    return
+  fi
+
+  current_owner="$(path_owner_spec "$data_dir")" || fail "Cannot inspect ownership for $data_dir."
+
+  if [[ "$current_owner" != "$N8N_CONTAINER_OWNER" ]]; then
+    verbose_note "Setting n8n app data directory ownership to $N8N_CONTAINER_OWNER"
+    run_chown_recursive "$N8N_CONTAINER_OWNER" "$data_dir"
   fi
 }
 
@@ -868,7 +889,6 @@ run_bootstrap() {
 start_core_services() {
   prepare_postgres_data_dir "$PROJECT_ROOT/data/postgres"
   prepare_redis_data_dir "$PROJECT_ROOT/data/redis" 1
-  prepare_opensearch_data_dir "OpenSearch" "$PROJECT_ROOT/data/opensearch"
 
   run_cmd docker compose \
     --env-file "$ENV_FILE" \
@@ -895,6 +915,7 @@ start_ancillary_services() {
     return 0
   fi
 
+  prepare_opensearch_data_dir "OpenSearch" "$PROJECT_ROOT/data/opensearch"
   prepare_opensearch_data_dir "OpenSearch Dashboards" "$PROJECT_ROOT/data/opensearch-dashboards"
 
   run_cmd docker compose \
@@ -903,6 +924,8 @@ start_ancillary_services() {
     --profile ancillary-public \
     up \
     -d \
+    opensearch \
+    opensearch-dashboards \
     nginx-ancillary
 }
 
@@ -914,6 +937,7 @@ start_n8n_services() {
 
   prepare_postgres_data_dir "$PROJECT_ROOT/data/n8n/postgres"
   prepare_redis_data_dir "$PROJECT_ROOT/data/n8n/redis" 0
+  prepare_n8n_app_data_dir "$PROJECT_ROOT/data/n8n/app"
 
   run_cmd docker compose \
     --env-file "$ENV_FILE" \

@@ -32,6 +32,7 @@ FORCE=0
 #   2 = verbose — step banners + notable sub-actions + commands run
 #   3 = debug   — everything above + shell trace (set -x)
 VERBOSITY=1
+OPENSEARCH_CONTAINER_OWNER="1000:1000"
 
 usage() {
   cat <<'EOF'
@@ -146,16 +147,108 @@ run_cmd() {
   "$@"
 }
 
+path_owner_spec() {
+  local path="$1"
+
+  if stat -c '%u:%g' "$path" >/dev/null 2>&1; then
+    stat -c '%u:%g' "$path"
+    return
+  fi
+
+  stat -f '%u:%g' "$path"
+}
+
+run_chown_recursive() {
+  local owner="$1"
+  local path="$2"
+  local quoted_path
+
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    run_cmd chown -R "$owner" "$path"
+    return
+  fi
+
+  if [[ "$VERBOSITY" -ge 2 ]]; then
+    printf '  + chown -R %q %q\n' "$owner" "$path"
+  fi
+
+  if chown -R "$owner" "$path" 2>/dev/null; then
+    return
+  fi
+
+  if command -v sudo >/dev/null 2>&1; then
+    if [[ "$VERBOSITY" -ge 2 ]]; then
+      printf '  + sudo -n chown -R %q %q\n' "$owner" "$path"
+    fi
+
+    if sudo -n chown -R "$owner" "$path"; then
+      return
+    fi
+  fi
+
+  printf -v quoted_path '%q' "$path"
+  fail "Cannot set ownership for $path to $owner. Run: sudo chown -R $owner $quoted_path"
+}
+
+run_rm_f() {
+  local path="$1"
+  local quoted_path
+
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    run_cmd rm -f "$path"
+    return
+  fi
+
+  if rm -f "$path" 2>/dev/null; then
+    return
+  fi
+
+  if command -v sudo >/dev/null 2>&1 && sudo -n rm -f "$path"; then
+    return
+  fi
+
+  printf -v quoted_path '%q' "$path"
+  fail "Cannot remove $path. Run: sudo rm -f $quoted_path"
+}
+
 prepare_redis_data_dir() {
   local data_dir="$1"
   local appendonly="$2"
 
   # Redis skips its ownership repair when placeholder files exist in /data.
   run_cmd mkdir -p "$data_dir"
-  run_cmd rm -f "$data_dir/.gitkeep"
+  run_rm_f "$data_dir/.gitkeep"
 
   if [[ "$appendonly" -eq 1 ]]; then
     run_cmd mkdir -p "$data_dir/appendonlydir"
+  fi
+}
+
+prepare_postgres_data_dir() {
+  local data_dir="$1"
+
+  run_cmd mkdir -p "$data_dir"
+  run_rm_f "$data_dir/.gitkeep"
+}
+
+prepare_opensearch_data_dir() {
+  local label="$1"
+  local data_dir="$2"
+  local current_owner
+
+  run_cmd mkdir -p "$data_dir"
+  run_rm_f "$data_dir/.gitkeep"
+
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    run_chown_recursive "$OPENSEARCH_CONTAINER_OWNER" "$data_dir"
+    return
+  fi
+
+  current_owner="$(path_owner_spec "$data_dir")" || fail "Cannot inspect ownership for $data_dir."
+
+  if [[ "$current_owner" != "$OPENSEARCH_CONTAINER_OWNER" ]]; then
+    verbose_note "Setting $label data directory ownership to $OPENSEARCH_CONTAINER_OWNER"
+    run_chown_recursive "$OPENSEARCH_CONTAINER_OWNER" "$data_dir"
   fi
 }
 
@@ -759,6 +852,7 @@ run_bootstrap() {
 
 start_core_services() {
   prepare_redis_data_dir "$PROJECT_ROOT/data/redis" 1
+  prepare_opensearch_data_dir "OpenSearch" "$PROJECT_ROOT/data/opensearch"
 
   run_cmd docker compose \
     --env-file "$ENV_FILE" \
@@ -785,7 +879,7 @@ start_ancillary_services() {
     return 0
   fi
 
-  prepare_redis_data_dir "$PROJECT_ROOT/data/n8n/redis" 0
+  prepare_opensearch_data_dir "OpenSearch Dashboards" "$PROJECT_ROOT/data/opensearch-dashboards"
 
   run_cmd docker compose \
     --env-file "$ENV_FILE" \
@@ -801,6 +895,9 @@ start_n8n_services() {
     note "Skipping n8n services (--skip-n8n)"
     return 0
   fi
+
+  prepare_postgres_data_dir "$PROJECT_ROOT/data/n8n/postgres"
+  prepare_redis_data_dir "$PROJECT_ROOT/data/n8n/redis" 0
 
   run_cmd docker compose \
     --env-file "$ENV_FILE" \
@@ -826,26 +923,27 @@ run_setup_flow() {
   confirm_production_action
   guard_setup_not_already_done
 
-  step 1 5 "Checking required tools and files"
+  step 1 6 "Checking required tools and files"
   check_tools
   check_files
-  step 2 5 "Syncing release-managed environment values"
+  step 2 6 "Syncing release-managed environment values"
   sync_release_env
   sync_derived_env
-  step 3 5 "Running preflight checks"
+  step 3 6 "Running preflight checks"
   run_preflight
-  step 4 5 "Applying database migrations"
+  step 4 6 "Applying database migrations"
   run_migration
-  step 5 5 "Running bootstrap"
+  step 5 6 "Running bootstrap"
   run_bootstrap
   if [[ "$NO_START" -eq 0 ]]; then
+    step 6 6 "Starting core, n8n, and ancillary services"
     start_core_services
     start_n8n_services
     start_ancillary_services
     show_status
     print_access_addresses
   else
-    note "Skipping service start (--no-start)"
+    step 6 6 "Skipping service start (--no-start)"
   fi
 }
 

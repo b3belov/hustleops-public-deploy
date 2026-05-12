@@ -294,6 +294,79 @@ test("deploy start dry-run prepares Redis data directories before Compose starts
   );
 });
 
+test("deploy start dry-run prepares OpenSearch data directory before Compose starts services", async () => {
+  const tmpRoot = await mkdtemp(path.join(os.tmpdir(), "hustleops-deploy-opensearch-"));
+  const envFile = path.join(tmpRoot, ".env");
+  const fakeDockerBin = await createFakeDockerBin();
+
+  await writeFile(envFile, "HUSTLEOPS_TEST_ENV=1\n");
+
+  const { stdout, stderr } = await execFileAsync(
+    "bash",
+    [deployScript, "start", "--env-file", envFile, "--dry-run", "--yes"],
+    {
+      cwd: projectRoot,
+      env: {
+        ...process.env,
+        PATH: `${fakeDockerBin}:${process.env.PATH}`,
+      },
+    },
+  );
+
+  assert.equal(stderr, "");
+  assert.match(stdout, /DRY RUN: mkdir -p .*data\/opensearch/);
+  assert.match(stdout, /DRY RUN: rm -f .*data\/opensearch\/\.gitkeep/);
+  assert.match(stdout, /DRY RUN: chown -R 1000:1000 .*data\/opensearch/);
+  assert.ok(
+    stdout.indexOf("data/opensearch/.gitkeep") < stdout.indexOf("docker compose"),
+    "OpenSearch data directory cleanup should run before docker compose starts services",
+  );
+});
+
+test("deploy setup dry-run prepares and starts n8n services by default", async () => {
+  const tmpRoot = await mkdtemp(path.join(os.tmpdir(), "hustleops-deploy-setup-n8n-"));
+  const envFile = path.join(tmpRoot, ".env");
+  const fakeDockerBin = await createFakeDockerBin();
+
+  await writeFile(envFile, "HUSTLEOPS_TEST_ENV=1\n");
+
+  const { stdout, stderr } = await execFileAsync(
+    "bash",
+    [
+      deployScript,
+      "setup",
+      "--env-file",
+      envFile,
+      "--dry-run",
+      "--yes",
+      "--skip-pull",
+      "--skip-signature-verify",
+    ],
+    {
+      cwd: projectRoot,
+      env: {
+        ...process.env,
+        PATH: `${fakeDockerBin}:${process.env.PATH}`,
+      },
+    },
+  );
+
+  assert.equal(stderr, "");
+  assert.match(stdout, /DRY RUN: mkdir -p .*data\/n8n\/postgres/);
+  assert.match(stdout, /DRY RUN: rm -f .*data\/n8n\/postgres\/\.gitkeep/);
+  assert.match(stdout, /DRY RUN: mkdir -p .*data\/n8n\/redis/);
+  assert.match(stdout, /DRY RUN: rm -f .*data\/n8n\/redis\/\.gitkeep/);
+  assert.match(stdout, /up -d n8n-postgres n8n-redis n8n n8n-worker task-runner-main task-runner-worker/);
+  assert.ok(
+    stdout.indexOf("data/n8n/postgres/.gitkeep") < stdout.indexOf("n8n-postgres"),
+    "n8n PostgreSQL data directory cleanup should run before n8n services start during setup",
+  );
+  assert.ok(
+    stdout.indexOf("data/n8n/redis/.gitkeep") < stdout.indexOf("n8n-postgres"),
+    "n8n Redis data directory cleanup should run before n8n services start during setup",
+  );
+});
+
 test("deploy start dry-run starts ancillary proxy by default", async () => {
   const tmpRoot = await mkdtemp(path.join(os.tmpdir(), "hustleops-deploy-ancillary-"));
   const envFile = path.join(tmpRoot, ".env");
@@ -315,6 +388,8 @@ test("deploy start dry-run starts ancillary proxy by default", async () => {
 
   assert.equal(stderr, "");
   assert.match(stdout, /DRY RUN: mkdir -p .*data\/n8n\/redis/);
+  assert.match(stdout, /DRY RUN: mkdir -p .*data\/opensearch-dashboards/);
+  assert.match(stdout, /DRY RUN: chown -R 1000:1000 .*data\/opensearch-dashboards/);
   assert.match(stdout, /docker compose [\s\S]*--profile ancillary-public[\s\S]* up [\s\S]* nginx-ancillary/);
   assert.doesNotMatch(stdout, /Skipping ancillary services/);
 });

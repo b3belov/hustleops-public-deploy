@@ -101,6 +101,19 @@ async function createFakeDockerBin() {
   return binDir;
 }
 
+async function createRecordingPreflightHelper() {
+  const helperDir = await mkdtemp(path.join(os.tmpdir(), "hustleops-helper-"));
+  const preflightPath = path.join(helperDir, "preflight.sh");
+
+  await writeFile(
+    preflightPath,
+    "#!/bin/sh\nprintf '%s\\n' \"$@\"\n",
+  );
+  await chmod(preflightPath, 0o755);
+
+  return helperDir;
+}
+
 test("verify-release-tag-from-main allows tags reachable from origin/main", async () => {
   const repoRoot = await createOriginWithReleaseTags();
   const { stdout, stderr } = await runVerifyTag(repoRoot, "v1.2.3");
@@ -279,6 +292,199 @@ test("deploy start dry-run prepares Redis data directories before Compose starts
     stdout.indexOf("data/redis/.gitkeep") < stdout.indexOf("docker compose"),
     "Redis data directory cleanup should run before docker compose starts services",
   );
+});
+
+test("deploy start dry-run starts ancillary proxy by default", async () => {
+  const tmpRoot = await mkdtemp(path.join(os.tmpdir(), "hustleops-deploy-ancillary-"));
+  const envFile = path.join(tmpRoot, ".env");
+  const fakeDockerBin = await createFakeDockerBin();
+
+  await writeFile(envFile, "HUSTLEOPS_TEST_ENV=1\n");
+
+  const { stdout, stderr } = await execFileAsync(
+    "bash",
+    [deployScript, "start", "--env-file", envFile, "--dry-run", "--yes"],
+    {
+      cwd: projectRoot,
+      env: {
+        ...process.env,
+        PATH: `${fakeDockerBin}:${process.env.PATH}`,
+      },
+    },
+  );
+
+  assert.equal(stderr, "");
+  assert.match(stdout, /DRY RUN: mkdir -p .*data\/n8n\/redis/);
+  assert.match(stdout, /docker compose [\s\S]*--profile ancillary-public[\s\S]* up [\s\S]* nginx-ancillary/);
+  assert.doesNotMatch(stdout, /Skipping ancillary services/);
+});
+
+test("deploy start dry-run can skip ancillary proxy explicitly", async () => {
+  const tmpRoot = await mkdtemp(path.join(os.tmpdir(), "hustleops-deploy-skip-ancillary-"));
+  const envFile = path.join(tmpRoot, ".env");
+  const fakeDockerBin = await createFakeDockerBin();
+
+  await writeFile(envFile, "HUSTLEOPS_TEST_ENV=1\n");
+
+  const { stdout, stderr } = await execFileAsync(
+    "bash",
+    [deployScript, "start", "--env-file", envFile, "--dry-run", "--yes", "--skip-ancillary"],
+    {
+      cwd: projectRoot,
+      env: {
+        ...process.env,
+        PATH: `${fakeDockerBin}:${process.env.PATH}`,
+      },
+    },
+  );
+
+  assert.equal(stderr, "");
+  assert.match(stdout, /Skipping ancillary services \(\-\-skip-ancillary\)/);
+  assert.doesNotMatch(stdout, /--profile ancillary-public[\s\S]* nginx-ancillary/);
+});
+
+test("deploy start dry-run skip-n8n also skips ancillary proxy", async () => {
+  const tmpRoot = await mkdtemp(path.join(os.tmpdir(), "hustleops-deploy-skip-n8n-"));
+  const envFile = path.join(tmpRoot, ".env");
+  const fakeDockerBin = await createFakeDockerBin();
+
+  await writeFile(envFile, "HUSTLEOPS_TEST_ENV=1\n");
+
+  const { stdout, stderr } = await execFileAsync(
+    "bash",
+    [deployScript, "start", "--env-file", envFile, "--dry-run", "--yes", "--skip-n8n"],
+    {
+      cwd: projectRoot,
+      env: {
+        ...process.env,
+        PATH: `${fakeDockerBin}:${process.env.PATH}`,
+      },
+    },
+  );
+
+  assert.equal(stderr, "");
+  assert.match(stdout, /Skipping n8n services \(\-\-skip-n8n\)/);
+  assert.match(stdout, /Skipping ancillary services because n8n was skipped/);
+  assert.doesNotMatch(stdout, /--profile ancillary-public[\s\S]* nginx-ancillary/);
+});
+
+test("ancillary ports default to external binds", async () => {
+  const envExample = await readFile(path.join(projectRoot, ".env.example"), "utf8");
+  const compose = await readFile(path.join(projectRoot, "docker-compose.prod.yml"), "utf8");
+
+  assert.match(envExample, /^ANCILLARY_N8N_BIND=0\.0\.0\.0$/m);
+  assert.match(envExample, /^ANCILLARY_DASHBOARDS_BIND=0\.0\.0\.0$/m);
+  assert.match(compose, /\$\{ANCILLARY_N8N_BIND:-0\.0\.0\.0\}:5678:5678/);
+  assert.match(compose, /\$\{ANCILLARY_DASHBOARDS_BIND:-0\.0\.0\.0\}:5601:5601/);
+});
+
+test("deploy debug forwards debug verbosity into preflight", async () => {
+  const tmpRoot = await mkdtemp(path.join(os.tmpdir(), "hustleops-deploy-debug-"));
+  const envFile = path.join(tmpRoot, ".env");
+  const fakeDockerBin = await createFakeDockerBin();
+  const helperDir = await createRecordingPreflightHelper();
+
+  await writeFile(envFile, "HUSTLEOPS_TEST_ENV=1\n");
+
+  const { stdout, stderr } = await execFileAsync(
+    "bash",
+    [
+      deployScript,
+      "preflight",
+      "--env-file",
+      envFile,
+      "--skip-pull",
+      "--skip-signature-verify",
+      "--debug",
+    ],
+    {
+      cwd: projectRoot,
+      env: {
+        ...process.env,
+        HUSTLEOPS_DEPLOY_SCRIPT_DIR: helperDir,
+        PATH: `${fakeDockerBin}:${process.env.PATH}`,
+      },
+    },
+  );
+
+  assert.match(stderr, /\+ /);
+  assert.match(stdout, /--debug/);
+});
+
+test("preflight debug leaves docker pull progress visible", async () => {
+  const preflight = await readFile(path.join(projectRoot, "scripts", "preflight.sh"), "utf8");
+
+  assert.match(preflight, /PREFLIGHT_VERBOSITY=1/);
+  assert.match(preflight, /--debug\)/);
+  assert.match(preflight, /pull_image "\$HUSTLEOPS_BACKEND_IMAGE"/);
+  assert.match(preflight, /docker pull --platform linux\/amd64 "\$image_ref"\n/);
+  assert.match(preflight, /docker pull --platform linux\/amd64 "\$image_ref" >\/dev\/null/);
+});
+
+test("deploy script includes install guidance for required operator tools", async () => {
+  const deploy = await readFile(path.join(projectRoot, "scripts", "deploy.sh"), "utf8");
+
+  assert.match(deploy, /missing_required_tools=\(\)/);
+  assert.match(deploy, /Docker Engine with Docker Compose v2 is required/);
+  assert.match(deploy, /Node\.js 24 or newer is required/);
+  assert.match(deploy, /cosign is required for release image signature verification/);
+  assert.match(deploy, /Install missing tools now\? \[y\/N\]/);
+});
+
+test("preflight script includes install guidance for docker node and cosign", async () => {
+  const preflight = await readFile(path.join(projectRoot, "scripts", "preflight.sh"), "utf8");
+
+  assert.match(preflight, /missing_required_tools=\(\)/);
+  assert.match(preflight, /Docker Engine with Docker Compose v2 is required/);
+  assert.match(preflight, /Node\.js 24 or newer is required/);
+  assert.match(preflight, /cosign is required for release image signature verification/);
+  assert.match(preflight, /Install missing tools now\? \[y\/N\]/);
+});
+
+test("deploy start dry-run prints service access addresses", async () => {
+  const tmpRoot = await mkdtemp(path.join(os.tmpdir(), "hustleops-deploy-addresses-"));
+  const envFile = path.join(tmpRoot, ".env");
+  const fakeDockerBin = await createFakeDockerBin();
+
+  await writeFile(
+    envFile,
+    [
+      "PUBLIC_HOSTNAME=ops.example.test",
+      "ANCILLARY_N8N_BIND=0.0.0.0",
+      "ANCILLARY_DASHBOARDS_BIND=0.0.0.0",
+      "",
+    ].join("\n"),
+  );
+
+  const { stdout, stderr } = await execFileAsync(
+    "bash",
+    [deployScript, "start", "--env-file", envFile, "--dry-run", "--yes"],
+    {
+      cwd: projectRoot,
+      env: {
+        ...process.env,
+        PATH: `${fakeDockerBin}:${process.env.PATH}`,
+      },
+    },
+  );
+
+  assert.equal(stderr, "");
+  assert.match(stdout, /Service access addresses:/);
+  assert.match(stdout, /HustleOps app: http:\/\/ops\.example\.test/);
+  assert.match(stdout, /n8n: http:\/\/ops\.example\.test:5678/);
+  assert.match(stdout, /OpenSearch Dashboards: http:\/\/ops\.example\.test:5601/);
+});
+
+test("operator docs describe default ancillary exposure and debug behavior", async () => {
+  const readme = await readFile(path.join(projectRoot, "README.md"), "utf8");
+  const scriptsReadme = await readFile(path.join(projectRoot, "scripts", "README.md"), "utf8");
+
+  assert.match(readme, /n8n and OpenSearch Dashboards start by default/);
+  assert.match(readme, /Use `--skip-ancillary`/);
+  assert.match(readme, /`--debug` leaves Docker image pull progress visible/);
+  assert.match(readme, /After startup, `deploy\.sh` prints service access addresses/);
+  assert.match(scriptsReadme, /starts core, n8n, and ancillary reverse-proxy services by default/);
+  assert.match(scriptsReadme, /debug mode shows Docker pull progress/);
 });
 
 test("pr checks workflow exposes stable required check names", async () => {

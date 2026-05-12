@@ -15,7 +15,8 @@ BACKUP_DIR="$PROJECT_ROOT/backups"
 TIMEOUT_SECONDS=600
 
 COMMAND=""
-WITH_ANCILLARY=0
+WITH_ANCILLARY=1
+SKIP_ANCILLARY=0
 SKIP_N8N=0
 SKIP_PULL=0
 SKIP_SIGNATURE_VERIFY=0
@@ -57,8 +58,9 @@ Options:
   --verification-file PATH
   --backup-dir PATH
   --timeout-seconds SECONDS
-  --with-ancillary
-  --skip-n8n       Skip starting n8n services (n8n, n8n-worker, n8n-postgres, n8n-redis, task-runners)
+  --with-ancillary  Compatibility alias; ancillary proxy now starts by default
+  --skip-ancillary  Skip exposing n8n and OpenSearch Dashboards through the ancillary reverse proxy
+  --skip-n8n        Skip starting n8n services (n8n, n8n-worker, n8n-postgres, n8n-redis, task-runners)
   --skip-pull
   --skip-signature-verify
   --skip-backup
@@ -164,10 +166,71 @@ require_file() {
   [[ -f "$file_path" ]] || fail "$label not found: $file_path"
 }
 
-require_command() {
-  local command_name="$1"
+missing_required_tools=()
 
-  command -v "$command_name" >/dev/null 2>&1 || fail "$command_name must be installed and on PATH."
+record_missing_tool() {
+  local command_name="$1"
+  local description="$2"
+  local install_hint="$3"
+
+  if command -v "$command_name" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  missing_required_tools+=("$command_name|$description|$install_hint")
+}
+
+print_missing_tool_guidance() {
+  local entry command_name description install_hint answer
+
+  [[ "${#missing_required_tools[@]}" -gt 0 ]] || return 0
+
+  printf 'ERROR: Missing required tools:\n' >&2
+  for entry in "${missing_required_tools[@]}"; do
+    IFS='|' read -r command_name description install_hint <<< "$entry"
+    printf '  - %s: %s\n' "$command_name" "$description" >&2
+    printf '    Install: %s\n' "$install_hint" >&2
+  done
+
+  if [[ "$YES" -eq 0 && "$DRY_RUN" -eq 0 && -t 0 ]]; then
+    printf 'Install missing tools now? [y/N] ' >&2
+    read -r answer
+    case "$answer" in
+      y|Y|yes|YES)
+        printf 'Run the install commands above, then re-run this deploy command.\n' >&2
+        ;;
+      *)
+        printf 'Aborted until required tools are installed.\n' >&2
+        ;;
+    esac
+  fi
+
+  exit 1
+}
+
+record_docker_requirement() {
+  record_missing_tool \
+    docker \
+    "Docker Engine with Docker Compose v2 is required to run the deployment stack." \
+    "macOS: install Docker Desktop; Linux: install Docker Engine and the Compose plugin from https://docs.docker.com/engine/install/"
+}
+
+record_node_requirement() {
+  record_missing_tool \
+    node \
+    "Node.js 24 or newer is required for release metadata and env validation scripts." \
+    "macOS: brew install node@24; Linux: install Node.js 24 from https://nodejs.org/"
+}
+
+record_cosign_requirement() {
+  record_missing_tool \
+    cosign \
+    "cosign is required for release image signature verification." \
+    "macOS: brew install cosign; Linux: install from https://docs.sigstore.dev/cosign/installation/"
+}
+
+require_timeout() {
+  command -v timeout >/dev/null 2>&1 || fail "timeout must be installed and on PATH. On macOS, install with: brew install coreutils"
 }
 
 if [[ $# -eq 0 ]]; then
@@ -229,6 +292,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --with-ancillary)
       WITH_ANCILLARY=1
+      shift
+      ;;
+    --skip-ancillary)
+      SKIP_ANCILLARY=1
       shift
       ;;
     --skip-n8n)
@@ -362,7 +429,28 @@ ensure_dind_mounts() {
 check_tools() {
   ensure_dind_mounts
 
-  require_command docker
+  missing_required_tools=()
+  record_docker_requirement
+
+  case "$COMMAND" in
+    setup|update)
+      record_node_requirement
+      if [[ "$SKIP_SIGNATURE_VERIFY" -eq 0 ]]; then
+        record_cosign_requirement
+      fi
+      ;;
+    preflight)
+      record_node_requirement
+      if [[ "$SKIP_SIGNATURE_VERIFY" -eq 0 ]]; then
+        record_cosign_requirement
+      fi
+      ;;
+    migrate)
+      record_node_requirement
+      ;;
+  esac
+
+  print_missing_tool_guidance
 
   if [[ "$DRY_RUN" -eq 0 ]]; then
     docker compose version >/dev/null 2>&1 || fail "Docker Compose v2 must be available as 'docker compose'."
@@ -370,23 +458,12 @@ check_tools() {
 
   case "$COMMAND" in
     setup|update)
-      require_command node
       if [[ "$DRY_RUN" -eq 0 ]]; then
-        require_command timeout
-      fi
-      if [[ "$SKIP_SIGNATURE_VERIFY" -eq 0 ]]; then
-        require_command cosign
-      fi
-      ;;
-    preflight)
-      if [[ "$SKIP_SIGNATURE_VERIFY" -eq 0 ]]; then
-        require_command node
-        require_command cosign
+        require_timeout
       fi
       ;;
     migrate)
-      require_command node
-      require_command timeout
+      require_timeout
       ;;
   esac
 }
@@ -554,6 +631,52 @@ fs.writeFileSync(envFile, `${lines.join('\n')}\n`);
 NODE
 }
 
+read_env_value() {
+  local key="$1"
+  local line value
+
+  [[ -f "$ENV_FILE" ]] || return 0
+
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ "$line" =~ ^[[:space:]]*# ]] && continue
+    [[ "$line" == "$key="* ]] || continue
+    value="${line#*=}"
+    if [[ "$value" =~ ^\".*\"$ || "$value" =~ ^\'.*\'$ ]]; then
+      value="${value:1:${#value}-2}"
+    fi
+    printf '%s\n' "$value"
+    return 0
+  done < "$ENV_FILE"
+}
+
+public_access_host() {
+  local configured_host
+
+  configured_host="$(read_env_value PUBLIC_HOSTNAME)"
+  if [[ -n "$configured_host" ]]; then
+    printf '%s\n' "$configured_host"
+    return 0
+  fi
+
+  printf 'server-ip-or-dns\n'
+}
+
+print_access_addresses() {
+  local host
+
+  [[ "$NO_START" -eq 0 ]] || return 0
+  host="$(public_access_host)"
+
+  note ""
+  note "Service access addresses:"
+  note "  HustleOps app: http://$host"
+
+  if [[ "$SKIP_N8N" -eq 0 && "$SKIP_ANCILLARY" -eq 0 ]]; then
+    note "  n8n: http://$host:5678"
+    note "  OpenSearch Dashboards: http://$host:5601"
+  fi
+}
+
 run_preflight() {
   local args=(
     "$HELPER_DIR/preflight.sh"
@@ -562,6 +685,18 @@ run_preflight() {
     --manifest-file "$MANIFEST_FILE"
     --verification-file "$VERIFICATION_FILE"
   )
+
+  case "$VERBOSITY" in
+    0)
+      args+=(--quiet)
+      ;;
+    2)
+      args+=(--verbose)
+      ;;
+    3)
+      args+=(--debug)
+      ;;
+  esac
 
   [[ "$SKIP_PULL" -eq 1 ]] && args+=(--skip-pull)
   [[ "$SKIP_SIGNATURE_VERIFY" -eq 1 ]] && args+=(--skip-signature-verify)
@@ -636,6 +771,16 @@ start_core_services() {
 }
 
 start_ancillary_services() {
+  if [[ "$SKIP_ANCILLARY" -eq 1 ]]; then
+    note "Skipping ancillary services (--skip-ancillary)"
+    return 0
+  fi
+
+  if [[ "$SKIP_N8N" -eq 1 ]]; then
+    note "Skipping ancillary services because n8n was skipped"
+    return 0
+  fi
+
   if [[ "$WITH_ANCILLARY" -ne 1 ]]; then
     return 0
   fi
@@ -698,6 +843,7 @@ run_setup_flow() {
     start_n8n_services
     start_ancillary_services
     show_status
+    print_access_addresses
   else
     note "Skipping service start (--no-start)"
   fi
@@ -727,6 +873,7 @@ run_standard_flow() {
     start_n8n_services
     start_ancillary_services
     show_status
+    print_access_addresses
   else
     step 7 7 "Skipping service start (--no-start)"
   fi
@@ -748,6 +895,7 @@ case "$COMMAND" in
     start_n8n_services
     start_ancillary_services
     show_status
+    print_access_addresses
     ;;
   stop)
     step 1 2 "Checking required tools and files"

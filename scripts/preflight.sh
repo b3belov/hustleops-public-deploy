@@ -11,11 +11,12 @@ VERIFICATION_FILE="$PROJECT_ROOT/release-verification.json"
 DEPLOYMENT_TRIGGER_FILE="$PROJECT_ROOT/deployment/release-trigger.txt"
 SKIP_PULL=0
 SKIP_SIGNATURE_VERIFY=0
+PREFLIGHT_VERBOSITY=1
 SIGNATURE_PLAN_FILE=""
 
 usage() {
   cat <<'EOF'
-Usage: ./scripts/preflight.sh [--env-file PATH] [--compose-file PATH] [--manifest-file PATH] [--verification-file PATH] [--skip-pull] [--skip-signature-verify]
+Usage: ./scripts/preflight.sh [--env-file PATH] [--compose-file PATH] [--manifest-file PATH] [--verification-file PATH] [--skip-pull] [--skip-signature-verify] [--verbosity N|--verbose|--quiet|--debug]
 
 Validate populated deployment env, image signatures, digest-pinned image refs,
 and compose profiles before running migration/bootstrap in production.
@@ -27,8 +28,75 @@ fail() {
   exit 1
 }
 
+missing_required_tools=()
+
+record_missing_tool() {
+  local command_name="$1"
+  local description="$2"
+  local install_hint="$3"
+
+  if command -v "$command_name" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  missing_required_tools+=("$command_name|$description|$install_hint")
+}
+
+print_missing_tool_guidance() {
+  local entry command_name description install_hint answer
+
+  [[ "${#missing_required_tools[@]}" -gt 0 ]] || return 0
+
+  printf 'ERROR: Missing required tools:\n' >&2
+  for entry in "${missing_required_tools[@]}"; do
+    IFS='|' read -r command_name description install_hint <<< "$entry"
+    printf '  - %s: %s\n' "$command_name" "$description" >&2
+    printf '    Install: %s\n' "$install_hint" >&2
+  done
+
+  if [[ -t 0 ]]; then
+    printf 'Install missing tools now? [y/N] ' >&2
+    read -r answer
+    case "$answer" in
+      y|Y|yes|YES)
+        printf 'Run the install commands above, then re-run preflight.\n' >&2
+        ;;
+      *)
+        printf 'Aborted until required tools are installed.\n' >&2
+        ;;
+    esac
+  fi
+
+  exit 1
+}
+
+record_common_tool_requirements() {
+  record_missing_tool \
+    docker \
+    "Docker Engine with Docker Compose v2 is required to run the deployment stack." \
+    "macOS: install Docker Desktop; Linux: install Docker Engine and the Compose plugin from https://docs.docker.com/engine/install/"
+
+  record_missing_tool \
+    node \
+    "Node.js 24 or newer is required for release metadata and env validation scripts." \
+    "macOS: brew install node@24; Linux: install Node.js 24 from https://nodejs.org/"
+}
+
+record_cosign_requirement() {
+  record_missing_tool \
+    cosign \
+    "cosign is required for release image signature verification." \
+    "macOS: brew install cosign; Linux: install from https://docs.sigstore.dev/cosign/installation/"
+}
+
 note() {
+  [[ "$PREFLIGHT_VERBOSITY" -ge 1 ]] || return
   printf '==> %s\n' "$*"
+}
+
+debug_note() {
+  [[ "$PREFLIGHT_VERBOSITY" -ge 3 ]] || return
+  printf '[debug] %s\n' "$*"
 }
 
 resolve_path() {
@@ -192,11 +260,21 @@ validate_env() {
   validate_bootstrap_email
 }
 
+pull_image() {
+  local image_ref="$1"
+
+  if [[ "$PREFLIGHT_VERBOSITY" -ge 3 ]]; then
+    docker pull --platform linux/amd64 "$image_ref"
+  else
+    docker pull --platform linux/amd64 "$image_ref" >/dev/null
+  fi
+}
+
 run_pull_checks() {
   note "Pulling pinned release images"
-  docker pull --platform linux/amd64 "$HUSTLEOPS_BACKEND_IMAGE" >/dev/null
-  docker pull --platform linux/amd64 "$HUSTLEOPS_FRONTEND_IMAGE" >/dev/null
-  docker pull --platform linux/amd64 "$HUSTLEOPS_BACKEND_MIGRATION_IMAGE" >/dev/null
+  pull_image "$HUSTLEOPS_BACKEND_IMAGE"
+  pull_image "$HUSTLEOPS_FRONTEND_IMAGE"
+  pull_image "$HUSTLEOPS_BACKEND_MIGRATION_IMAGE"
 }
 
 validate_release_metadata() {
@@ -273,6 +351,24 @@ while [[ $# -gt 0 ]]; do
       SKIP_SIGNATURE_VERIFY=1
       shift
       ;;
+    --verbosity)
+      [[ $# -ge 2 ]] || fail "Missing value for --verbosity."
+      [[ "$2" =~ ^[0-3]$ ]] || fail "--verbosity must be 0, 1, 2, or 3."
+      PREFLIGHT_VERBOSITY="$2"
+      shift 2
+      ;;
+    --verbose)
+      PREFLIGHT_VERBOSITY=2
+      shift
+      ;;
+    --quiet)
+      PREFLIGHT_VERBOSITY=0
+      shift
+      ;;
+    --debug)
+      PREFLIGHT_VERBOSITY=3
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -288,21 +384,24 @@ COMPOSE_FILE="$(resolve_path "$COMPOSE_FILE")"
 MANIFEST_FILE="$(resolve_path "$MANIFEST_FILE")"
 VERIFICATION_FILE="$(resolve_path "$VERIFICATION_FILE")"
 
+[[ "$PREFLIGHT_VERBOSITY" -ge 3 ]] && set -x
+
 [[ -f "$ENV_FILE" ]] || fail "Env file not found: $ENV_FILE"
 [[ -f "$COMPOSE_FILE" ]] || fail "Compose file not found: $COMPOSE_FILE"
 
 load_env_file
 validate_env
 
-command -v docker >/dev/null 2>&1 || fail "docker must be installed and on PATH."
-command -v node >/dev/null 2>&1 || fail "node must be installed and on PATH."
+missing_required_tools=()
+record_common_tool_requirements
+if [[ $SKIP_SIGNATURE_VERIFY -eq 0 ]]; then
+  record_cosign_requirement
+fi
+print_missing_tool_guidance
+
 [[ -f "$MANIFEST_FILE" ]] || fail "Release manifest file not found: $MANIFEST_FILE"
 [[ -f "$VERIFICATION_FILE" ]] || fail "Release verification file not found: $VERIFICATION_FILE"
 [[ -f "$DEPLOYMENT_TRIGGER_FILE" ]] || fail "Deployment trigger file not found: $DEPLOYMENT_TRIGGER_FILE"
-
-if [[ $SKIP_SIGNATURE_VERIFY -eq 0 ]]; then
-  command -v cosign >/dev/null 2>&1 || fail "cosign must be installed and on PATH, or pass --skip-signature-verify."
-fi
 
 cleanup() {
   if [[ -n "$SIGNATURE_PLAN_FILE" ]]; then

@@ -31,7 +31,7 @@ The HustleOps GHCR images are public and can be pulled without signing in.
    ./scripts/deploy.sh setup --env-file .env
    ```
 
-   The setup flow validates required tools, verifies release images, captures a PostgreSQL backup, applies migrations, runs the initial-admin bootstrap, and starts the core application services.
+   The setup flow validates required tools, verifies release images, captures a PostgreSQL backup, applies migrations, runs the initial-admin bootstrap, starts the core application services, starts n8n and OpenSearch Dashboards, exposes their ancillary proxy ports, prints Docker Compose status, and prints service access addresses.
 
 ## Update
 
@@ -49,9 +49,9 @@ After pulling a newer public deploy repository release, run:
 ./scripts/deploy.sh update --env-file .env
 ```
 
-The update flow syncs release-managed image and metadata values from `.env.example` into `.env`, runs preflight checks, captures a PostgreSQL backup, applies pending migrations, runs the idempotent bootstrap contract, recreates core application services, and prints service status. Operator-provided secrets in `.env` are preserved.
+The update flow syncs release-managed image and metadata values from `.env.example` into `.env`, runs preflight checks, captures a PostgreSQL backup, applies pending migrations, runs the idempotent bootstrap contract, recreates core application services, starts n8n and OpenSearch Dashboards, publishes their ancillary proxy ports, and prints service status plus access addresses. Operator-provided secrets in `.env` are preserved.
 
-Use `--with-ancillary` only when n8n and OpenSearch Dashboards should be exposed through the ancillary reverse proxy.
+n8n and OpenSearch Dashboards start by default and are exposed through the ancillary reverse proxy. Use `--skip-ancillary` when those ports must not be published, and use `--skip-n8n` when the n8n runtime itself should not be started.
 
 ## Local Validation
 
@@ -83,16 +83,19 @@ docker compose --env-file .env -f docker-compose.prod.yml --profile bootstrap ru
 docker compose --env-file .env -f docker-compose.prod.yml up -d backend frontend nginx
 ```
 
-## Optional Services
+## Published Services
 
-n8n and OpenSearch Dashboards bind to localhost by default. Enable them only when those surfaces are required:
+The default start path publishes:
 
-```bash
-COMPOSE_PROFILES=ancillary-public docker compose --env-file .env -f docker-compose.prod.yml up -d nginx-ancillary
-```
+- HustleOps app: port `80`
+- n8n: port `5678`
+- OpenSearch Dashboards: port `5601`
 
-`--with-ancillary` publishes n8n on port `5678` and OpenSearch Dashboards on port `5601`.
-Only use non-localhost `ANCILLARY_N8N_BIND` or `ANCILLARY_DASHBOARDS_BIND` values behind a trusted network boundary such as VPN, private firewall rules, SSO-capable reverse proxy, or equivalent access control.
+After startup, `deploy.sh` prints service access addresses. Set `PUBLIC_HOSTNAME` in `.env` so the deploy script prints concrete service addresses after startup. If `PUBLIC_HOSTNAME` is empty, the script prints `server-ip-or-dns` as a reminder to use the target host address.
+
+`ANCILLARY_N8N_BIND` and `ANCILLARY_DASHBOARDS_BIND` default to `0.0.0.0`. Restrict these values to a private interface when the host is not already protected by trusted network boundaries such as VPN, private firewall rules, SSO-capable reverse proxy, or equivalent access control.
+
+`--debug` leaves Docker image pull progress visible and enables shell tracing for deploy/preflight diagnostics.
 
 ## Starting and Stopping
 

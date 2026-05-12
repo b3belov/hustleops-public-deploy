@@ -421,6 +421,26 @@ test("preflight debug leaves docker pull progress visible", async () => {
   assert.match(preflight, /docker pull --platform linux\/amd64 "\$image_ref" >\/dev\/null/);
 });
 
+test("deploy script includes install guidance for required operator tools", async () => {
+  const deploy = await readFile(path.join(projectRoot, "scripts", "deploy.sh"), "utf8");
+
+  assert.match(deploy, /missing_required_tools=\(\)/);
+  assert.match(deploy, /Docker Engine with Docker Compose v2 is required/);
+  assert.match(deploy, /Node\.js 24 or newer is required/);
+  assert.match(deploy, /cosign is required for release image signature verification/);
+  assert.match(deploy, /Install missing tools now\? \[y\/N\]/);
+});
+
+test("preflight script includes install guidance for docker node and cosign", async () => {
+  const preflight = await readFile(path.join(projectRoot, "scripts", "preflight.sh"), "utf8");
+
+  assert.match(preflight, /missing_required_tools=\(\)/);
+  assert.match(preflight, /Docker Engine with Docker Compose v2 is required/);
+  assert.match(preflight, /Node\.js 24 or newer is required/);
+  assert.match(preflight, /cosign is required for release image signature verification/);
+  assert.match(preflight, /Install missing tools now\? \[y\/N\]/);
+});
+
 test("pr checks workflow exposes stable required check names", async () => {
   const workflow = await readFile(path.join(projectRoot, ".github", "workflows", "pr-checks.yml"), "utf8");
 

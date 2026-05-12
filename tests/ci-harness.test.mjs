@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -11,6 +11,7 @@ const projectRoot = path.resolve(import.meta.dirname, "..");
 const verifyTagScript = path.join(projectRoot, "scripts", "ci", "verify-release-tag-from-main.sh");
 const checkPinningScript = path.join(projectRoot, "scripts", "ci", "check-actions-pinning.sh");
 const verifyApproverScript = path.join(projectRoot, "scripts", "ci", "verify-production-approver.sh");
+const deployScript = path.join(projectRoot, "scripts", "deploy.sh");
 
 async function git(repoRoot, args) {
   return execFileAsync("git", ["-C", repoRoot, ...args]);
@@ -88,6 +89,16 @@ async function runApproverCheckWithEnv(expectedApprover, env = {}) {
       ...env,
     },
   });
+}
+
+async function createFakeDockerBin() {
+  const binDir = await mkdtemp(path.join(os.tmpdir(), "hustleops-fake-docker-"));
+  const dockerPath = path.join(binDir, "docker");
+
+  await writeFile(dockerPath, "#!/bin/sh\nexit 0\n");
+  await chmod(dockerPath, 0o755);
+
+  return binDir;
 }
 
 test("verify-release-tag-from-main allows tags reachable from origin/main", async () => {
@@ -238,6 +249,35 @@ test("verify-production-approver fails closed when approver context is missing",
       assert.match(error.stderr, /GITHUB_ACTOR is required\./);
       return true;
     },
+  );
+});
+
+test("deploy start dry-run prepares Redis data directories before Compose starts services", async () => {
+  const tmpRoot = await mkdtemp(path.join(os.tmpdir(), "hustleops-deploy-start-"));
+  const envFile = path.join(tmpRoot, ".env");
+  const fakeDockerBin = await createFakeDockerBin();
+
+  await writeFile(envFile, "HUSTLEOPS_TEST_ENV=1\n");
+
+  const { stdout, stderr } = await execFileAsync(
+    "bash",
+    [deployScript, "start", "--env-file", envFile, "--dry-run", "--yes"],
+    {
+      cwd: projectRoot,
+      env: {
+        ...process.env,
+        PATH: `${fakeDockerBin}:${process.env.PATH}`,
+      },
+    },
+  );
+
+  assert.equal(stderr, "");
+  assert.match(stdout, /DRY RUN: mkdir -p .*data\/redis/);
+  assert.match(stdout, /DRY RUN: rm -f .*data\/redis\/\.gitkeep/);
+  assert.match(stdout, /DRY RUN: mkdir -p .*data\/redis\/appendonlydir/);
+  assert.ok(
+    stdout.indexOf("data/redis/.gitkeep") < stdout.indexOf("docker compose"),
+    "Redis data directory cleanup should run before docker compose starts services",
   );
 });
 

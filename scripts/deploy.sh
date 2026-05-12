@@ -3,7 +3,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+DEFAULT_PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+PROJECT_ROOT="${HUSTLEOPS_DEPLOY_PROJECT_ROOT:-$DEFAULT_PROJECT_ROOT}"
 HELPER_DIR="${HUSTLEOPS_DEPLOY_SCRIPT_DIR:-$SCRIPT_DIR}"
 
 ENV_FILE="$PROJECT_ROOT/.env"
@@ -227,9 +228,18 @@ prepare_redis_data_dir() {
 
 prepare_postgres_data_dir() {
   local data_dir="$1"
+  local legacy_pgdata_dir="$data_dir/pgdata"
 
   run_cmd mkdir -p "$data_dir"
   run_rm_f "$data_dir/.gitkeep"
+
+  if [[ -f "$data_dir/PG_VERSION" || -d "$data_dir/base" || -d "$data_dir/global" ]]; then
+    fail "PostgreSQL data directory $data_dir uses the legacy root layout. This release mounts Postgres 18 at /var/lib/postgresql, so cluster data must live under $data_dir/18/docker. Back up the directory, then move an existing Postgres 18 cluster into that subdirectory or run pg_upgrade from older major versions before starting."
+  fi
+
+  if [[ -f "$legacy_pgdata_dir/PG_VERSION" || -d "$legacy_pgdata_dir/base" || -d "$legacy_pgdata_dir/global" ]]; then
+    fail "PostgreSQL data directory $legacy_pgdata_dir uses the legacy pgdata layout. This release mounts Postgres 18 at /var/lib/postgresql, so cluster data must live under $data_dir/18/docker. Back up the directory, then move an existing Postgres 18 cluster into that subdirectory or run pg_upgrade from older major versions before starting."
+  fi
 }
 
 prepare_opensearch_data_dir() {
@@ -803,6 +813,8 @@ prepare_postgres_for_backup() {
     return 0
   fi
 
+  prepare_postgres_data_dir "$PROJECT_ROOT/data/postgres"
+
   run_cmd docker compose \
     --env-file "$ENV_FILE" \
     -f "$COMPOSE_FILE" \
@@ -825,6 +837,8 @@ run_backup() {
 
 run_migration() {
   local status
+
+  prepare_postgres_data_dir "$PROJECT_ROOT/data/postgres"
 
   run_cmd "$HELPER_DIR/run-migration.sh" \
     --env-file "$ENV_FILE" \
@@ -852,6 +866,7 @@ run_bootstrap() {
 }
 
 start_core_services() {
+  prepare_postgres_data_dir "$PROJECT_ROOT/data/postgres"
   prepare_redis_data_dir "$PROJECT_ROOT/data/redis" 1
   prepare_opensearch_data_dir "OpenSearch" "$PROJECT_ROOT/data/opensearch"
 

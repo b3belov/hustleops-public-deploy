@@ -13,6 +13,13 @@ const checkPinningScript = path.join(projectRoot, "scripts", "ci", "check-action
 const verifyApproverScript = path.join(projectRoot, "scripts", "ci", "verify-production-approver.sh");
 const deployScript = path.join(projectRoot, "scripts", "deploy.sh");
 
+function composeServiceBlock(compose, serviceName) {
+  const escapedName = serviceName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = compose.match(new RegExp(`^  ${escapedName}:\\n[\\s\\S]*?(?=^  [A-Za-z0-9_-]+:\\n|^networks:)`, "m"));
+  assert.ok(match, `Expected docker-compose.prod.yml to include service ${serviceName}`);
+  return match[0];
+}
+
 async function git(repoRoot, args) {
   return execFileAsync("git", ["-C", repoRoot, ...args]);
 }
@@ -294,7 +301,7 @@ test("deploy start dry-run prepares Redis data directories before Compose starts
   );
 });
 
-test("deploy start dry-run prepares OpenSearch data directory before Compose starts services", async () => {
+test("deploy start dry-run prepares OpenSearch data directory with ancillary services", async () => {
   const tmpRoot = await mkdtemp(path.join(os.tmpdir(), "hustleops-deploy-opensearch-"));
   const envFile = path.join(tmpRoot, ".env");
   const fakeDockerBin = await createFakeDockerBin();
@@ -318,8 +325,8 @@ test("deploy start dry-run prepares OpenSearch data directory before Compose sta
   assert.match(stdout, /DRY RUN: rm -f .*data\/opensearch\/\.gitkeep/);
   assert.match(stdout, /DRY RUN: chown -R 1000:1000 .*data\/opensearch/);
   assert.ok(
-    stdout.indexOf("data/opensearch/.gitkeep") < stdout.indexOf("docker compose"),
-    "OpenSearch data directory cleanup should run before docker compose starts services",
+    stdout.indexOf("data/opensearch/.gitkeep") < stdout.indexOf("--profile ancillary-public"),
+    "OpenSearch data directory cleanup should run before ancillary services start",
   );
 });
 
@@ -356,6 +363,9 @@ test("deploy setup dry-run prepares and starts n8n services by default", async (
   assert.match(stdout, /DRY RUN: rm -f .*data\/n8n\/postgres\/\.gitkeep/);
   assert.match(stdout, /DRY RUN: mkdir -p .*data\/n8n\/redis/);
   assert.match(stdout, /DRY RUN: rm -f .*data\/n8n\/redis\/\.gitkeep/);
+  assert.match(stdout, /DRY RUN: mkdir -p .*data\/n8n\/app/);
+  assert.match(stdout, /DRY RUN: rm -f .*data\/n8n\/app\/\.gitkeep/);
+  assert.match(stdout, /DRY RUN: chown -R 1000:1000 .*data\/n8n\/app/);
   assert.match(stdout, /up -d n8n-postgres n8n-redis n8n n8n-worker task-runner-main task-runner-worker/);
   assert.ok(
     stdout.indexOf("data/n8n/postgres/.gitkeep") < stdout.indexOf("n8n-postgres"),
@@ -364,6 +374,10 @@ test("deploy setup dry-run prepares and starts n8n services by default", async (
   assert.ok(
     stdout.indexOf("data/n8n/redis/.gitkeep") < stdout.indexOf("n8n-postgres"),
     "n8n Redis data directory cleanup should run before n8n services start during setup",
+  );
+  assert.ok(
+    stdout.indexOf("data/n8n/app") < stdout.indexOf("n8n-postgres"),
+    "n8n app data directory ownership should be fixed before n8n services start during setup",
   );
 });
 
@@ -388,9 +402,11 @@ test("deploy start dry-run starts ancillary proxy by default", async () => {
 
   assert.equal(stderr, "");
   assert.match(stdout, /DRY RUN: mkdir -p .*data\/n8n\/redis/);
+  assert.match(stdout, /DRY RUN: mkdir -p .*data\/opensearch/);
+  assert.match(stdout, /DRY RUN: chown -R 1000:1000 .*data\/opensearch/);
   assert.match(stdout, /DRY RUN: mkdir -p .*data\/opensearch-dashboards/);
   assert.match(stdout, /DRY RUN: chown -R 1000:1000 .*data\/opensearch-dashboards/);
-  assert.match(stdout, /docker compose [\s\S]*--profile ancillary-public[\s\S]* up [\s\S]* nginx-ancillary/);
+  assert.match(stdout, /docker compose [\s\S]*--profile ancillary-public[\s\S]* up [\s\S]* opensearch opensearch-dashboards nginx-ancillary/);
   assert.doesNotMatch(stdout, /Skipping ancillary services/);
 });
 
@@ -466,7 +482,7 @@ test("deploy restart dry-run stops then starts the full default stack", async ()
   assert.match(stdout, /DRY RUN: docker compose .* stop/);
   assert.match(stdout, /up -d backend frontend nginx/);
   assert.match(stdout, /up -d n8n-postgres n8n-redis n8n n8n-worker task-runner-main task-runner-worker/);
-  assert.match(stdout, /--profile ancillary-public[\s\S]* up [\s\S]* nginx-ancillary/);
+  assert.match(stdout, /--profile ancillary-public[\s\S]* up [\s\S]* opensearch opensearch-dashboards nginx-ancillary/);
   assert.ok(
     stdout.indexOf("docker-compose.prod.yml stop") < stdout.indexOf("up -d backend frontend nginx"),
     "restart should stop existing containers before starting the default stack",
@@ -490,6 +506,50 @@ test("ancillary ports default to external binds", async () => {
   assert.match(envExample, /^ANCILLARY_DASHBOARDS_BIND=0\.0\.0\.0$/m);
   assert.match(compose, /\$\{ANCILLARY_N8N_BIND:-0\.0\.0\.0\}:5678:5678/);
   assert.match(compose, /\$\{ANCILLARY_DASHBOARDS_BIND:-0\.0\.0\.0\}:5601:5601/);
+});
+
+test("OpenSearch and Dashboards services are grouped under the ancillary profile", async () => {
+  const compose = await readFile(path.join(projectRoot, "docker-compose.prod.yml"), "utf8");
+  const backend = composeServiceBlock(compose, "backend");
+  const opensearch = composeServiceBlock(compose, "opensearch");
+  const dashboards = composeServiceBlock(compose, "opensearch-dashboards");
+  const nginxAncillary = composeServiceBlock(compose, "nginx-ancillary");
+
+  assert.doesNotMatch(backend, /depends_on:[\s\S]*opensearch:/);
+  assert.match(opensearch, /profiles:\n      - ancillary-public/);
+  assert.match(dashboards, /profiles:\n      - ancillary-public/);
+  assert.match(dashboards, /depends_on:\n      opensearch:\n        condition: service_healthy/);
+  assert.match(nginxAncillary, /depends_on:[\s\S]*opensearch-dashboards:\n        condition: service_started/);
+});
+
+test("ancillary proxy waits for n8n readiness before serving traffic", async () => {
+  const compose = await readFile(path.join(projectRoot, "docker-compose.prod.yml"), "utf8");
+
+  assert.match(compose, /^  n8n:\n[\s\S]*?healthcheck:\n[\s\S]*?healthz\/readiness/m);
+  assert.match(
+    compose,
+    /^  nginx-ancillary:\n[\s\S]*?depends_on:\n[\s\S]*?      n8n:\n        condition: service_healthy/m,
+  );
+});
+
+test("OpenSearch Dashboards proxy leaves CSP to the upstream service", async () => {
+  const ancillaryNginx = await readFile(path.join(projectRoot, "nginx", "nginx.ancillary.conf"), "utf8");
+  const compose = await readFile(path.join(projectRoot, "docker-compose.prod.yml"), "utf8");
+  const validateNginx = await readFile(path.join(projectRoot, "scripts", "validate-nginx.sh"), "utf8");
+
+  assert.match(
+    ancillaryNginx,
+    /listen 5601;[\s\S]*include \/etc\/nginx\/security-headers-no-csp\.conf;/,
+  );
+  assert.doesNotMatch(
+    ancillaryNginx,
+    /listen 5601;[\s\S]*include \/etc\/nginx\/security-headers\.conf;/,
+  );
+  assert.match(
+    compose,
+    /- \.\/nginx\/security-headers-no-csp\.conf:\/etc\/nginx\/security-headers-no-csp\.conf:ro/,
+  );
+  assert.match(validateNginx, /security-headers-no-csp\.conf/);
 });
 
 test("postgres 18 services mount persistent parent directories", async () => {
@@ -691,11 +751,12 @@ test("operator docs describe default ancillary exposure and debug behavior", asy
   const readme = await readFile(path.join(projectRoot, "README.md"), "utf8");
   const scriptsReadme = await readFile(path.join(projectRoot, "scripts", "README.md"), "utf8");
 
-  assert.match(readme, /n8n and OpenSearch Dashboards start by default/);
+  assert.match(readme, /n8n and the OpenSearch ancillary bundle start by default/);
+  assert.match(readme, /OpenSearch and OpenSearch Dashboards are started together/);
   assert.match(readme, /Use `--skip-ancillary`/);
   assert.match(readme, /`--debug` leaves Docker image pull progress visible/);
   assert.match(readme, /After startup, `deploy\.sh` prints service access addresses/);
-  assert.match(scriptsReadme, /starts core, n8n, and ancillary reverse-proxy services by default/);
+  assert.match(scriptsReadme, /starts core, n8n, and the OpenSearch\/Dashboards ancillary bundle by default/);
   assert.match(scriptsReadme, /debug mode shows Docker pull progress/);
 });
 

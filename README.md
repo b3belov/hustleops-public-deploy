@@ -31,7 +31,7 @@ The HustleOps GHCR images are public and can be pulled without signing in.
    ./scripts/deploy.sh setup --env-file .env
    ```
 
-   The setup flow validates required tools, verifies release images, captures a PostgreSQL backup, applies migrations, runs the initial-admin bootstrap, starts the core application services, starts n8n and OpenSearch Dashboards, exposes their ancillary proxy ports, prints Docker Compose status, and prints service access addresses.
+   The setup flow validates required tools, verifies release images, captures a PostgreSQL backup, applies migrations, runs the initial-admin bootstrap, starts the core application services, starts n8n, starts the OpenSearch ancillary bundle, exposes ancillary proxy ports, prints Docker Compose status, and prints service access addresses.
 
 ## Update
 
@@ -49,9 +49,9 @@ After pulling a newer public deploy repository release, run:
 ./scripts/deploy.sh update --env-file .env
 ```
 
-The update flow syncs release-managed image and metadata values from `.env.example` into `.env`, runs preflight checks, captures a PostgreSQL backup, applies pending migrations, runs the idempotent bootstrap contract, recreates core application services, starts n8n and OpenSearch Dashboards, publishes their ancillary proxy ports, and prints service status plus access addresses. Operator-provided secrets in `.env` are preserved.
+The update flow syncs release-managed image and metadata values from `.env.example` into `.env`, runs preflight checks, captures a PostgreSQL backup, applies pending migrations, runs the idempotent bootstrap contract, recreates core application services, starts n8n and the OpenSearch ancillary bundle, publishes ancillary proxy ports, and prints service status plus access addresses. Operator-provided secrets in `.env` are preserved.
 
-n8n and OpenSearch Dashboards start by default and are exposed through the ancillary reverse proxy. Use `--skip-ancillary` when those ports must not be published, and use `--skip-n8n` when the n8n runtime itself should not be started.
+n8n and the OpenSearch ancillary bundle start by default and are exposed through the ancillary reverse proxy. OpenSearch and OpenSearch Dashboards are started together under the `ancillary-public` Compose profile. Use `--skip-ancillary` when those ports and OpenSearch services must not be published or started, and use `--skip-n8n` when the n8n runtime itself should not be started.
 
 ## Local Validation
 
@@ -81,6 +81,7 @@ Manual bootstrap and service start commands:
 ```bash
 docker compose --env-file .env -f docker-compose.prod.yml --profile bootstrap run --rm backend-bootstrap
 docker compose --env-file .env -f docker-compose.prod.yml up -d backend frontend nginx
+docker compose --env-file .env -f docker-compose.prod.yml --profile ancillary-public up -d opensearch opensearch-dashboards nginx-ancillary
 ```
 
 ## Published Services

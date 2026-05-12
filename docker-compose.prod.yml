@@ -141,7 +141,7 @@ services:
       HOME: /tmp
       NODE_ENV: production
       PORT: 3000
-      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public&connection_limit=15&pool_timeout=30
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD_ENCODED}@postgres:5432/${POSTGRES_DB}?schema=public&connection_limit=15&pool_timeout=30
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD}
@@ -194,7 +194,7 @@ services:
     restart: "no"
     environment:
       HOME: /tmp
-      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public&connection_limit=15&pool_timeout=30
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD_ENCODED}@postgres:5432/${POSTGRES_DB}?schema=public&connection_limit=15&pool_timeout=30
     labels:
       io.hustleops.release.tag: "${HUSTLEOPS_RELEASE_TAG}"
       io.hustleops.release.trigger: "${HUSTLEOPS_RELEASE_TRIGGER}"
@@ -217,7 +217,7 @@ services:
     restart: "no"
     environment:
       HOME: /tmp
-      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public&connection_limit=15&pool_timeout=30
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD_ENCODED}@postgres:5432/${POSTGRES_DB}?schema=public&connection_limit=15&pool_timeout=30
       BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL}
       BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD}
     labels:

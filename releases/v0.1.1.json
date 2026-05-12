@@ -97,7 +97,7 @@
         "All migrations have been successfully applied.",
         "No pending migrations to apply."
       ],
-      "successMarkerPath": "releases/v0.1.1.migration-success.json",
+      "successMarkerPath": "state/v0.1.1.migration-success.json",
       "successMarkerFormat": "json",
       "successMarkerSchemaVersion": 1,
       "successMarkerRequiredFields": [

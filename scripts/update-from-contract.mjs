@@ -313,7 +313,7 @@ function buildRootManifest({
         timeoutSemantics: existingMigration.timeoutSemantics ?? "fail if docker compose run --rm exceeds timeoutSeconds or exits non-zero",
         successExitCode: existingMigration.successExitCode ?? 0,
         successOutputMarkers,
-        successMarkerPath: `releases/${tag}.migration-success.json`,
+        successMarkerPath: `state/${tag}.migration-success.json`,
         successMarkerFormat: existingMigration.successMarkerFormat ?? "json",
         successMarkerSchemaVersion: existingMigration.successMarkerSchemaVersion ?? SCHEMA_VERSION,
         ownership: existingMigration.ownership ?? "single-runner",

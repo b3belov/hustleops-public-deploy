@@ -475,6 +475,18 @@ test("deploy start dry-run prints service access addresses", async () => {
   assert.match(stdout, /OpenSearch Dashboards: http:\/\/ops\.example\.test:5601/);
 });
 
+test("operator docs describe default ancillary exposure and debug behavior", async () => {
+  const readme = await readFile(path.join(projectRoot, "README.md"), "utf8");
+  const scriptsReadme = await readFile(path.join(projectRoot, "scripts", "README.md"), "utf8");
+
+  assert.match(readme, /n8n and OpenSearch Dashboards start by default/);
+  assert.match(readme, /Use `--skip-ancillary`/);
+  assert.match(readme, /`--debug` leaves Docker image pull progress visible/);
+  assert.match(readme, /After startup, `deploy\.sh` prints service access addresses/);
+  assert.match(scriptsReadme, /starts core, n8n, and ancillary reverse-proxy services by default/);
+  assert.match(scriptsReadme, /debug mode shows Docker pull progress/);
+});
+
 test("pr checks workflow exposes stable required check names", async () => {
   const workflow = await readFile(path.join(projectRoot, ".github", "workflows", "pr-checks.yml"), "utf8");
 

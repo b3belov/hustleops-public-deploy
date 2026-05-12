@@ -101,6 +101,19 @@ async function createFakeDockerBin() {
   return binDir;
 }
 
+async function createRecordingPreflightHelper() {
+  const helperDir = await mkdtemp(path.join(os.tmpdir(), "hustleops-helper-"));
+  const preflightPath = path.join(helperDir, "preflight.sh");
+
+  await writeFile(
+    preflightPath,
+    "#!/bin/sh\nprintf '%s\\n' \"$@\"\n",
+  );
+  await chmod(preflightPath, 0o755);
+
+  return helperDir;
+}
+
 test("verify-release-tag-from-main allows tags reachable from origin/main", async () => {
   const repoRoot = await createOriginWithReleaseTags();
   const { stdout, stderr } = await runVerifyTag(repoRoot, "v1.2.3");
@@ -363,6 +376,49 @@ test("ancillary ports default to external binds", async () => {
   assert.match(envExample, /^ANCILLARY_DASHBOARDS_BIND=0\.0\.0\.0$/m);
   assert.match(compose, /\$\{ANCILLARY_N8N_BIND:-0\.0\.0\.0\}:5678:5678/);
   assert.match(compose, /\$\{ANCILLARY_DASHBOARDS_BIND:-0\.0\.0\.0\}:5601:5601/);
+});
+
+test("deploy debug forwards debug verbosity into preflight", async () => {
+  const tmpRoot = await mkdtemp(path.join(os.tmpdir(), "hustleops-deploy-debug-"));
+  const envFile = path.join(tmpRoot, ".env");
+  const fakeDockerBin = await createFakeDockerBin();
+  const helperDir = await createRecordingPreflightHelper();
+
+  await writeFile(envFile, "HUSTLEOPS_TEST_ENV=1\n");
+
+  const { stdout, stderr } = await execFileAsync(
+    "bash",
+    [
+      deployScript,
+      "preflight",
+      "--env-file",
+      envFile,
+      "--skip-pull",
+      "--skip-signature-verify",
+      "--debug",
+    ],
+    {
+      cwd: projectRoot,
+      env: {
+        ...process.env,
+        HUSTLEOPS_DEPLOY_SCRIPT_DIR: helperDir,
+        PATH: `${fakeDockerBin}:${process.env.PATH}`,
+      },
+    },
+  );
+
+  assert.match(stderr, /\+ /);
+  assert.match(stdout, /--debug/);
+});
+
+test("preflight debug leaves docker pull progress visible", async () => {
+  const preflight = await readFile(path.join(projectRoot, "scripts", "preflight.sh"), "utf8");
+
+  assert.match(preflight, /PREFLIGHT_VERBOSITY=1/);
+  assert.match(preflight, /--debug\)/);
+  assert.match(preflight, /pull_image "\$HUSTLEOPS_BACKEND_IMAGE"/);
+  assert.match(preflight, /docker pull --platform linux\/amd64 "\$image_ref"\n/);
+  assert.match(preflight, /docker pull --platform linux\/amd64 "\$image_ref" >\/dev\/null/);
 });
 
 test("pr checks workflow exposes stable required check names", async () => {

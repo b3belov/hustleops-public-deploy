@@ -11,11 +11,12 @@ VERIFICATION_FILE="$PROJECT_ROOT/release-verification.json"
 DEPLOYMENT_TRIGGER_FILE="$PROJECT_ROOT/deployment/release-trigger.txt"
 SKIP_PULL=0
 SKIP_SIGNATURE_VERIFY=0
+PREFLIGHT_VERBOSITY=1
 SIGNATURE_PLAN_FILE=""
 
 usage() {
   cat <<'EOF'
-Usage: ./scripts/preflight.sh [--env-file PATH] [--compose-file PATH] [--manifest-file PATH] [--verification-file PATH] [--skip-pull] [--skip-signature-verify]
+Usage: ./scripts/preflight.sh [--env-file PATH] [--compose-file PATH] [--manifest-file PATH] [--verification-file PATH] [--skip-pull] [--skip-signature-verify] [--verbosity N|--verbose|--quiet|--debug]
 
 Validate populated deployment env, image signatures, digest-pinned image refs,
 and compose profiles before running migration/bootstrap in production.
@@ -28,7 +29,13 @@ fail() {
 }
 
 note() {
+  [[ "$PREFLIGHT_VERBOSITY" -ge 1 ]] || return
   printf '==> %s\n' "$*"
+}
+
+debug_note() {
+  [[ "$PREFLIGHT_VERBOSITY" -ge 3 ]] || return
+  printf '[debug] %s\n' "$*"
 }
 
 resolve_path() {
@@ -192,11 +199,21 @@ validate_env() {
   validate_bootstrap_email
 }
 
+pull_image() {
+  local image_ref="$1"
+
+  if [[ "$PREFLIGHT_VERBOSITY" -ge 3 ]]; then
+    docker pull --platform linux/amd64 "$image_ref"
+  else
+    docker pull --platform linux/amd64 "$image_ref" >/dev/null
+  fi
+}
+
 run_pull_checks() {
   note "Pulling pinned release images"
-  docker pull --platform linux/amd64 "$HUSTLEOPS_BACKEND_IMAGE" >/dev/null
-  docker pull --platform linux/amd64 "$HUSTLEOPS_FRONTEND_IMAGE" >/dev/null
-  docker pull --platform linux/amd64 "$HUSTLEOPS_BACKEND_MIGRATION_IMAGE" >/dev/null
+  pull_image "$HUSTLEOPS_BACKEND_IMAGE"
+  pull_image "$HUSTLEOPS_FRONTEND_IMAGE"
+  pull_image "$HUSTLEOPS_BACKEND_MIGRATION_IMAGE"
 }
 
 validate_release_metadata() {
@@ -273,6 +290,24 @@ while [[ $# -gt 0 ]]; do
       SKIP_SIGNATURE_VERIFY=1
       shift
       ;;
+    --verbosity)
+      [[ $# -ge 2 ]] || fail "Missing value for --verbosity."
+      [[ "$2" =~ ^[0-3]$ ]] || fail "--verbosity must be 0, 1, 2, or 3."
+      PREFLIGHT_VERBOSITY="$2"
+      shift 2
+      ;;
+    --verbose)
+      PREFLIGHT_VERBOSITY=2
+      shift
+      ;;
+    --quiet)
+      PREFLIGHT_VERBOSITY=0
+      shift
+      ;;
+    --debug)
+      PREFLIGHT_VERBOSITY=3
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -287,6 +322,8 @@ ENV_FILE="$(resolve_path "$ENV_FILE")"
 COMPOSE_FILE="$(resolve_path "$COMPOSE_FILE")"
 MANIFEST_FILE="$(resolve_path "$MANIFEST_FILE")"
 VERIFICATION_FILE="$(resolve_path "$VERIFICATION_FILE")"
+
+[[ "$PREFLIGHT_VERBOSITY" -ge 3 ]] && set -x
 
 [[ -f "$ENV_FILE" ]] || fail "Env file not found: $ENV_FILE"
 [[ -f "$COMPOSE_FILE" ]] || fail "Compose file not found: $COMPOSE_FILE"

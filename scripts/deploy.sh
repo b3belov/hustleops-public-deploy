@@ -569,6 +569,18 @@ run_preflight() {
     --verification-file "$VERIFICATION_FILE"
   )
 
+  case "$VERBOSITY" in
+    0)
+      args+=(--quiet)
+      ;;
+    2)
+      args+=(--verbose)
+      ;;
+    3)
+      args+=(--debug)
+      ;;
+  esac
+
   [[ "$SKIP_PULL" -eq 1 ]] && args+=(--skip-pull)
   [[ "$SKIP_SIGNATURE_VERIFY" -eq 1 ]] && args+=(--skip-signature-verify)
 

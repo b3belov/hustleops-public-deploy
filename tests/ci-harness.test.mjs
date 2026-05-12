@@ -307,15 +307,21 @@ test("workflow job display names are stable lowercase kebab-case", async () => {
   }
 });
 
-test("create-release-tag workflow uses approver and deploy-key gates", async () => {
+test("create-release-tag workflow uses approver and GitHub App gates", async () => {
   const workflow = await readFile(path.join(projectRoot, ".github", "workflows", "create-release-tag.yml"), "utf8");
 
   assert.match(workflow, /permissions:\n  contents: read/);
   assert.match(workflow, /persist-credentials: false/);
   assert.match(workflow, /RELEASE_TAG_APPROVER/);
-  assert.match(workflow, /RELEASE_TAG_DEPLOY_KEY/);
+  assert.match(workflow, /actions\/create-github-app-token@[0-9a-f]{40}/);
+  assert.match(workflow, /RELEASE_TAG_APP_ID/);
+  assert.match(workflow, /RELEASE_TAG_APP_PRIVATE_KEY/);
+  assert.match(workflow, /permission-contents: write/);
   assert.match(workflow, /git tag -a "\$VERSION" -m "Release \$VERSION"/);
-  assert.doesNotMatch(workflow, /contents: write/);
+  assert.match(workflow, /RELEASE_TAG_TOKEN: \$\{\{ steps\.release-tag-token\.outputs\.token \}\}/);
+  assert.match(workflow, /x-access-token:\$\{RELEASE_TAG_TOKEN\}@github\.com/);
+  assert.doesNotMatch(workflow, /RELEASE_TAG_DEPLOY_KEY/);
+  assert.doesNotMatch(workflow, /permissions:\n  contents: write/);
 });
 
 test("required workflow files expose stable names and jobs", async () => {

@@ -443,6 +443,45 @@ test("deploy start dry-run skip-n8n also skips ancillary proxy", async () => {
   assert.doesNotMatch(stdout, /--profile ancillary-public[\s\S]* nginx-ancillary/);
 });
 
+test("deploy restart dry-run stops then starts the full default stack", async () => {
+  const tmpRoot = await mkdtemp(path.join(os.tmpdir(), "hustleops-deploy-restart-"));
+  const envFile = path.join(tmpRoot, ".env");
+  const fakeDockerBin = await createFakeDockerBin();
+
+  await writeFile(envFile, "HUSTLEOPS_TEST_ENV=1\n");
+
+  const { stdout, stderr } = await execFileAsync(
+    "bash",
+    [deployScript, "restart", "--env-file", envFile, "--dry-run", "--yes"],
+    {
+      cwd: projectRoot,
+      env: {
+        ...process.env,
+        PATH: `${fakeDockerBin}:${process.env.PATH}`,
+      },
+    },
+  );
+
+  assert.equal(stderr, "");
+  assert.match(stdout, /DRY RUN: docker compose .* stop/);
+  assert.match(stdout, /up -d backend frontend nginx/);
+  assert.match(stdout, /up -d n8n-postgres n8n-redis n8n n8n-worker task-runner-main task-runner-worker/);
+  assert.match(stdout, /--profile ancillary-public[\s\S]* up [\s\S]* nginx-ancillary/);
+  assert.ok(
+    stdout.indexOf("docker-compose.prod.yml stop") < stdout.indexOf("up -d backend frontend nginx"),
+    "restart should stop existing containers before starting the default stack",
+  );
+  assert.match(stdout, /Service access addresses:/);
+});
+
+test("deploy script help documents start and restart stack commands", async () => {
+  const deploy = await readFile(path.join(projectRoot, "scripts", "deploy.sh"), "utf8");
+
+  assert.match(deploy, /\{setup\|update\|start\|restart\|stop\|down\|status\|preflight\|backup\|migrate\|bootstrap\}/);
+  assert.match(deploy, /start\s+Start stack if it was previously stopped or down/);
+  assert.match(deploy, /restart\s+Restart stack/);
+});
+
 test("ancillary ports default to external binds", async () => {
   const envExample = await readFile(path.join(projectRoot, ".env.example"), "utf8");
   const compose = await readFile(path.join(projectRoot, "docker-compose.prod.yml"), "utf8");

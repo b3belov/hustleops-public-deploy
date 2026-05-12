@@ -99,6 +99,18 @@ After startup, `deploy.sh` prints service access addresses. Set `PUBLIC_HOSTNAME
 
 ## Starting and Stopping
 
+Start the full stack after it was stopped or brought down:
+
+```bash
+./scripts/deploy.sh start --env-file .env
+```
+
+Restart the full stack:
+
+```bash
+./scripts/deploy.sh restart --env-file .env
+```
+
 Stop services (containers remain, data is preserved):
 
 ```bash

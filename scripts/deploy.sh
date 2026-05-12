@@ -36,13 +36,14 @@ OPENSEARCH_CONTAINER_OWNER="1000:1000"
 
 usage() {
   cat <<'EOF'
-Usage: ./scripts/deploy.sh {setup|update|start|stop|down|status|preflight|backup|migrate|bootstrap} [options]
+Usage: ./scripts/deploy.sh {setup|update|start|restart|stop|down|status|preflight|backup|migrate|bootstrap} [options]
 
 Commands:
   setup       Run first-install flow: preflight, migration, bootstrap, start (no backup — fresh DB)
               Fails if PostgreSQL is already reachable (use --force to override, or use 'update' instead)
   update      Run update flow: preflight, backup, migration, bootstrap, start
-  start       Start core services
+  start       Start stack if it was previously stopped or down
+  restart     Restart stack
   stop        Stop services (containers remain, data preserved)
   down        Stop and remove containers and networks (data volumes preserved)
   status      Show Docker Compose service status
@@ -335,7 +336,7 @@ COMMAND="$1"
 shift
 
 case "$COMMAND" in
-  setup|update|start|stop|down|status|preflight|backup|migrate|bootstrap)
+  setup|update|start|restart|stop|down|status|preflight|backup|migrate|bootstrap)
     ;;
   -h|--help)
     usage
@@ -563,7 +564,7 @@ check_tools() {
 
 check_files() {
   case "$COMMAND" in
-    setup|update|preflight|backup|migrate|bootstrap|start|stop|down|status)
+    setup|update|preflight|backup|migrate|bootstrap|start|restart|stop|down|status)
       require_file "$ENV_FILE" "Env file"
       require_file "$COMPOSE_FILE" "Compose file"
       ;;
@@ -919,6 +920,18 @@ show_status() {
     ps
 }
 
+start_stack_services() {
+  start_core_services
+  start_n8n_services
+  start_ancillary_services
+  show_status
+  print_access_addresses
+}
+
+stop_stack_services() {
+  run_cmd docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" stop
+}
+
 run_setup_flow() {
   confirm_production_action
   guard_setup_not_already_done
@@ -937,11 +950,7 @@ run_setup_flow() {
   run_bootstrap
   if [[ "$NO_START" -eq 0 ]]; then
     step 6 6 "Starting core, n8n, and ancillary services"
-    start_core_services
-    start_n8n_services
-    start_ancillary_services
-    show_status
-    print_access_addresses
+    start_stack_services
   else
     step 6 6 "Skipping service start (--no-start)"
   fi
@@ -966,12 +975,8 @@ run_standard_flow() {
   step 6 7 "Running bootstrap"
   run_bootstrap
   if [[ "$NO_START" -eq 0 ]]; then
-    step 7 7 "Starting core services"
-    start_core_services
-    start_n8n_services
-    start_ancillary_services
-    show_status
-    print_access_addresses
+    step 7 7 "Starting stack"
+    start_stack_services
   else
     step 7 7 "Skipping service start (--no-start)"
   fi
@@ -988,19 +993,24 @@ case "$COMMAND" in
     step 1 2 "Checking required tools and files"
     check_tools
     check_files
-    step 2 2 "Starting core services"
-    start_core_services
-    start_n8n_services
-    start_ancillary_services
-    show_status
-    print_access_addresses
+    step 2 2 "Starting stack"
+    start_stack_services
+    ;;
+  restart)
+    step 1 3 "Checking required tools and files"
+    check_tools
+    check_files
+    step 2 3 "Stopping services"
+    stop_stack_services
+    step 3 3 "Starting stack"
+    start_stack_services
     ;;
   stop)
     step 1 2 "Checking required tools and files"
     check_tools
     check_files
     step 2 2 "Stopping services"
-    run_cmd docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" stop
+    stop_stack_services
     ;;
   down)
     step 1 2 "Checking required tools and files"

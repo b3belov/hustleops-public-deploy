@@ -294,6 +294,79 @@ test("deploy start dry-run prepares Redis data directories before Compose starts
   );
 });
 
+test("deploy start dry-run prepares OpenSearch data directory before Compose starts services", async () => {
+  const tmpRoot = await mkdtemp(path.join(os.tmpdir(), "hustleops-deploy-opensearch-"));
+  const envFile = path.join(tmpRoot, ".env");
+  const fakeDockerBin = await createFakeDockerBin();
+
+  await writeFile(envFile, "HUSTLEOPS_TEST_ENV=1\n");
+
+  const { stdout, stderr } = await execFileAsync(
+    "bash",
+    [deployScript, "start", "--env-file", envFile, "--dry-run", "--yes"],
+    {
+      cwd: projectRoot,
+      env: {
+        ...process.env,
+        PATH: `${fakeDockerBin}:${process.env.PATH}`,
+      },
+    },
+  );
+
+  assert.equal(stderr, "");
+  assert.match(stdout, /DRY RUN: mkdir -p .*data\/opensearch/);
+  assert.match(stdout, /DRY RUN: rm -f .*data\/opensearch\/\.gitkeep/);
+  assert.match(stdout, /DRY RUN: chown -R 1000:1000 .*data\/opensearch/);
+  assert.ok(
+    stdout.indexOf("data/opensearch/.gitkeep") < stdout.indexOf("docker compose"),
+    "OpenSearch data directory cleanup should run before docker compose starts services",
+  );
+});
+
+test("deploy setup dry-run prepares and starts n8n services by default", async () => {
+  const tmpRoot = await mkdtemp(path.join(os.tmpdir(), "hustleops-deploy-setup-n8n-"));
+  const envFile = path.join(tmpRoot, ".env");
+  const fakeDockerBin = await createFakeDockerBin();
+
+  await writeFile(envFile, "HUSTLEOPS_TEST_ENV=1\n");
+
+  const { stdout, stderr } = await execFileAsync(
+    "bash",
+    [
+      deployScript,
+      "setup",
+      "--env-file",
+      envFile,
+      "--dry-run",
+      "--yes",
+      "--skip-pull",
+      "--skip-signature-verify",
+    ],
+    {
+      cwd: projectRoot,
+      env: {
+        ...process.env,
+        PATH: `${fakeDockerBin}:${process.env.PATH}`,
+      },
+    },
+  );
+
+  assert.equal(stderr, "");
+  assert.match(stdout, /DRY RUN: mkdir -p .*data\/n8n\/postgres/);
+  assert.match(stdout, /DRY RUN: rm -f .*data\/n8n\/postgres\/\.gitkeep/);
+  assert.match(stdout, /DRY RUN: mkdir -p .*data\/n8n\/redis/);
+  assert.match(stdout, /DRY RUN: rm -f .*data\/n8n\/redis\/\.gitkeep/);
+  assert.match(stdout, /up -d n8n-postgres n8n-redis n8n n8n-worker task-runner-main task-runner-worker/);
+  assert.ok(
+    stdout.indexOf("data/n8n/postgres/.gitkeep") < stdout.indexOf("n8n-postgres"),
+    "n8n PostgreSQL data directory cleanup should run before n8n services start during setup",
+  );
+  assert.ok(
+    stdout.indexOf("data/n8n/redis/.gitkeep") < stdout.indexOf("n8n-postgres"),
+    "n8n Redis data directory cleanup should run before n8n services start during setup",
+  );
+});
+
 test("deploy start dry-run starts ancillary proxy by default", async () => {
   const tmpRoot = await mkdtemp(path.join(os.tmpdir(), "hustleops-deploy-ancillary-"));
   const envFile = path.join(tmpRoot, ".env");
@@ -315,6 +388,8 @@ test("deploy start dry-run starts ancillary proxy by default", async () => {
 
   assert.equal(stderr, "");
   assert.match(stdout, /DRY RUN: mkdir -p .*data\/n8n\/redis/);
+  assert.match(stdout, /DRY RUN: mkdir -p .*data\/opensearch-dashboards/);
+  assert.match(stdout, /DRY RUN: chown -R 1000:1000 .*data\/opensearch-dashboards/);
   assert.match(stdout, /docker compose [\s\S]*--profile ancillary-public[\s\S]* up [\s\S]* nginx-ancillary/);
   assert.doesNotMatch(stdout, /Skipping ancillary services/);
 });
@@ -366,6 +441,45 @@ test("deploy start dry-run skip-n8n also skips ancillary proxy", async () => {
   assert.match(stdout, /Skipping n8n services \(\-\-skip-n8n\)/);
   assert.match(stdout, /Skipping ancillary services because n8n was skipped/);
   assert.doesNotMatch(stdout, /--profile ancillary-public[\s\S]* nginx-ancillary/);
+});
+
+test("deploy restart dry-run stops then starts the full default stack", async () => {
+  const tmpRoot = await mkdtemp(path.join(os.tmpdir(), "hustleops-deploy-restart-"));
+  const envFile = path.join(tmpRoot, ".env");
+  const fakeDockerBin = await createFakeDockerBin();
+
+  await writeFile(envFile, "HUSTLEOPS_TEST_ENV=1\n");
+
+  const { stdout, stderr } = await execFileAsync(
+    "bash",
+    [deployScript, "restart", "--env-file", envFile, "--dry-run", "--yes"],
+    {
+      cwd: projectRoot,
+      env: {
+        ...process.env,
+        PATH: `${fakeDockerBin}:${process.env.PATH}`,
+      },
+    },
+  );
+
+  assert.equal(stderr, "");
+  assert.match(stdout, /DRY RUN: docker compose .* stop/);
+  assert.match(stdout, /up -d backend frontend nginx/);
+  assert.match(stdout, /up -d n8n-postgres n8n-redis n8n n8n-worker task-runner-main task-runner-worker/);
+  assert.match(stdout, /--profile ancillary-public[\s\S]* up [\s\S]* nginx-ancillary/);
+  assert.ok(
+    stdout.indexOf("docker-compose.prod.yml stop") < stdout.indexOf("up -d backend frontend nginx"),
+    "restart should stop existing containers before starting the default stack",
+  );
+  assert.match(stdout, /Service access addresses:/);
+});
+
+test("deploy script help documents start and restart stack commands", async () => {
+  const deploy = await readFile(path.join(projectRoot, "scripts", "deploy.sh"), "utf8");
+
+  assert.match(deploy, /\{setup\|update\|start\|restart\|stop\|down\|status\|preflight\|backup\|migrate\|bootstrap\}/);
+  assert.match(deploy, /start\s+Start stack if it was previously stopped or down/);
+  assert.match(deploy, /restart\s+Restart stack/);
 });
 
 test("ancillary ports default to external binds", async () => {

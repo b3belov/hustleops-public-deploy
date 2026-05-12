@@ -81,7 +81,7 @@ jobs:
           node --check scripts/update-from-contract.mjs
           node --check scripts/make-ci-env.mjs
           node --check scripts/validate-release-metadata.mjs
-          node --test tests/*.test.mjs
+          RELEASE_TAG='' node --test tests/*.test.mjs
 
       - name: Validate release metadata
         shell: bash

@@ -330,7 +330,25 @@ confirm_production_action() {
   esac
 }
 
+ensure_dind_mounts() {
+  # In dev-container environments where the project root is backed by a fakeowner
+  # (Docker Desktop host-sharing) FUSE filesystem, the Docker daemon cannot
+  # bind-mount paths from that filesystem.  Delegate to setup-dind.sh, which
+  # replaces each bind-mount source path with a symlink to a native location.
+  grep -q 'fakeowner' /proc/mounts 2>/dev/null || return 0
+
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    printf 'DRY RUN: would run setup-dind.sh to shadow bind-mount sources (fakeowner detected)\n'
+    return 0
+  fi
+
+  debug_note "fakeowner detected — running setup-dind.sh"
+  "$HELPER_DIR/setup-dind.sh" --project-root "$PROJECT_ROOT"
+}
+
 check_tools() {
+  ensure_dind_mounts
+
   require_command docker
 
   if [[ "$DRY_RUN" -eq 0 ]]; then

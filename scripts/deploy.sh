@@ -115,6 +115,19 @@ run_cmd() {
   "$@"
 }
 
+prepare_redis_data_dir() {
+  local data_dir="$1"
+  local appendonly="$2"
+
+  # Redis skips its ownership repair when placeholder files exist in /data.
+  run_cmd mkdir -p "$data_dir"
+  run_cmd rm -f "$data_dir/.gitkeep"
+
+  if [[ "$appendonly" -eq 1 ]]; then
+    run_cmd mkdir -p "$data_dir/appendonlydir"
+  fi
+}
+
 require_file() {
   local file_path="$1"
   local label="$2"
@@ -468,6 +481,8 @@ run_bootstrap() {
 }
 
 start_core_services() {
+  prepare_redis_data_dir "$PROJECT_ROOT/data/redis" 1
+
   run_cmd docker compose \
     --env-file "$ENV_FILE" \
     -f "$COMPOSE_FILE" \
@@ -482,6 +497,8 @@ start_ancillary_services() {
   if [[ "$WITH_ANCILLARY" -ne 1 ]]; then
     return 0
   fi
+
+  prepare_redis_data_dir "$PROJECT_ROOT/data/n8n/redis" 0
 
   run_cmd docker compose \
     --env-file "$ENV_FILE" \

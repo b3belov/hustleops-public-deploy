@@ -777,7 +777,11 @@ test("ancillary nginx serves n8n and OpenSearch Dashboards over HTTPS", async ()
   assert.match(nginx, /ssl_certificate_key \/etc\/nginx\/tls\/privkey\.pem;/);
   assert.match(nginx, /Strict-Transport-Security "max-age=31536000; includeSubDomains" always;/);
   assert.match(nginx, /listen 5678 ssl;[\s\S]*proxy_pass http:\/\/n8n:5678;/);
+  assert.match(nginx, /listen 5678 ssl;[\s\S]*proxy_set_header Host\s+\$http_host;/);
+  assert.match(nginx, /listen 5678 ssl;[\s\S]*proxy_set_header X-Forwarded-Host\s+\$http_host;/);
   assert.match(nginx, /listen 5601 ssl;[\s\S]*proxy_pass http:\/\/opensearch-dashboards:5601;/);
+  assert.match(nginx, /listen 5601 ssl;[\s\S]*proxy_set_header Host\s+\$http_host;/);
+  assert.match(nginx, /listen 5601 ssl;[\s\S]*proxy_set_header X-Forwarded-Host\s+\$http_host;/);
 });
 
 test("core nginx redirects HTTP and serves the app over HTTPS", async () => {

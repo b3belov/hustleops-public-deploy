@@ -1053,6 +1053,12 @@ start_core_services() {
     backend \
     frontend \
     nginx
+
+  run_cmd docker compose \
+    --env-file "$ENV_FILE" \
+    -f "$COMPOSE_FILE" \
+    restart \
+    nginx
 }
 
 start_ancillary_services() {
@@ -1081,6 +1087,13 @@ start_ancillary_services() {
     -d \
     opensearch \
     opensearch-dashboards \
+    nginx-ancillary
+
+  run_cmd docker compose \
+    --env-file "$ENV_FILE" \
+    -f "$COMPOSE_FILE" \
+    --profile ancillary-public \
+    restart \
     nginx-ancillary
 }
 

@@ -952,8 +952,8 @@ print_access_addresses() {
   note "  HustleOps app: https://$host"
 
   if [[ "$SKIP_N8N" -eq 0 && "$SKIP_ANCILLARY" -eq 0 ]]; then
-    note "  n8n: http://$host:5678"
-    note "  OpenSearch Dashboards: http://$host:5601"
+    note "  n8n: https://$host:5678"
+    note "  OpenSearch Dashboards: https://$host:5601"
   fi
 }
 

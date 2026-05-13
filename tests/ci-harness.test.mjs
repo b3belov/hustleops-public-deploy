@@ -333,6 +333,12 @@ test("deploy start dry-run prepares Redis data directories before Compose starts
     stdout.indexOf("data/redis/.gitkeep") < stdout.indexOf("docker compose"),
     "Redis data directory cleanup should run before docker compose starts services",
   );
+  assert.match(stdout, /up -d backend frontend nginx/);
+  assert.match(stdout, /docker compose [\s\S]* restart nginx/);
+  assert.ok(
+    stdout.indexOf("up -d backend frontend nginx") < stdout.indexOf("restart nginx"),
+    "core nginx should restart after Compose has ensured the service is running",
+  );
 });
 
 test("deploy start dry-run prepares OpenSearch data directory with ancillary services", async () => {
@@ -548,6 +554,12 @@ test("deploy start dry-run starts ancillary proxy by default", async () => {
   assert.match(stdout, /DRY RUN: mkdir -p .*data\/opensearch-dashboards/);
   assert.match(stdout, /DRY RUN: chown -R 1000:1000 .*data\/opensearch-dashboards/);
   assert.match(stdout, /docker compose [\s\S]*--profile ancillary-public[\s\S]* up [\s\S]* opensearch opensearch-dashboards nginx-ancillary/);
+  assert.match(stdout, /docker compose [\s\S]*--profile ancillary-public[\s\S]* restart nginx-ancillary/);
+  assert.ok(
+    stdout.indexOf("opensearch opensearch-dashboards nginx-ancillary") <
+      stdout.indexOf("restart nginx-ancillary"),
+    "ancillary nginx should restart after Compose has ensured the service is running",
+  );
   assert.doesNotMatch(stdout, /Skipping ancillary services/);
 });
 
@@ -622,10 +634,12 @@ test("deploy restart dry-run stops then starts the full default stack", async ()
   assert.equal(stderr, "");
   assert.match(stdout, /DRY RUN: docker compose .* stop/);
   assert.match(stdout, /up -d backend frontend nginx/);
+  assert.match(stdout, /docker compose [\s\S]* restart nginx/);
   assert.match(stdout, /up -d n8n-postgres n8n-redis n8n n8n-worker task-runner-main task-runner-worker/);
   assert.match(stdout, /--profile ancillary-public[\s\S]* up [\s\S]* opensearch opensearch-dashboards nginx-ancillary/);
+  assert.match(stdout, /--profile ancillary-public[\s\S]* restart nginx-ancillary/);
   assert.ok(
-    stdout.indexOf("docker-compose.prod.yml stop") < stdout.indexOf("up -d backend frontend nginx"),
+    stdout.indexOf("docker-compose.prod.yml stop") < stdout.indexOf("up -d backend frontend"),
     "restart should stop existing containers before starting the default stack",
   );
   assert.match(stdout, /Service access addresses:/);

@@ -823,6 +823,7 @@ test("nginx validation script supplies temporary TLS files", async () => {
 
   assert.match(validateNginx, /mktemp -d/);
   assert.match(validateNginx, /openssl req -x509/);
+  assert.match(validateNginx, /chmod 0644 "\$TLS_TMP_DIR\/fullchain\.pem" "\$TLS_TMP_DIR\/privkey\.pem"/);
   assert.match(validateNginx, /\/etc\/nginx\/tls\/fullchain\.pem:ro/);
   assert.match(validateNginx, /\/etc\/nginx\/tls\/privkey\.pem:ro/);
 });

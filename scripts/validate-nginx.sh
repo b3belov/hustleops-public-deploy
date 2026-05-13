@@ -47,5 +47,7 @@ openssl req -x509 \
   -keyout "$TLS_TMP_DIR/privkey.pem" \
   -out "$TLS_TMP_DIR/fullchain.pem" >/dev/null 2>&1
 
+chmod 0644 "$TLS_TMP_DIR/fullchain.pem" "$TLS_TMP_DIR/privkey.pem"
+
 validate_config "nginx/nginx.conf"
 validate_config "nginx/nginx.ancillary.conf"

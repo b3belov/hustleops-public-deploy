@@ -1226,7 +1226,7 @@ case "$COMMAND" in
     check_tools
     check_files
     step 2 2 "Removing containers and networks"
-    run_cmd docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" down
+    run_cmd docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" --profile ancillary-public down
     ;;
   status)
     step 1 2 "Checking required tools and files"

@@ -199,6 +199,31 @@ validate_cors_origin() {
   fi
 }
 
+resolve_project_path() {
+  local value="$1"
+
+  if [[ "$value" = /* ]]; then
+    printf '%s\n' "$value"
+    return
+  fi
+
+  printf '%s\n' "$PROJECT_ROOT/${value#./}"
+}
+
+validate_nginx_tls_files() {
+  local cert_path key_path cert_file key_file
+
+  cert_path="${NGINX_TLS_CERT_PATH:-./nginx/certs/fullchain.pem}"
+  key_path="${NGINX_TLS_KEY_PATH:-./nginx/certs/privkey.pem}"
+  cert_file="$(resolve_project_path "$cert_path")"
+  key_file="$(resolve_project_path "$key_path")"
+
+  [[ -f "$cert_file" ]] || fail "nginx TLS certificate file not found: $cert_file"
+  [[ -r "$cert_file" ]] || fail "nginx TLS certificate file is not readable: $cert_file"
+  [[ -f "$key_file" ]] || fail "nginx TLS private key file not found: $key_file"
+  [[ -r "$key_file" ]] || fail "nginx TLS private key file is not readable: $key_file"
+}
+
 validate_bootstrap_email() {
   local value="${BOOTSTRAP_ADMIN_EMAIL-}"
 
@@ -220,6 +245,8 @@ validate_env() {
     N8N_RUNNERS_AUTH_TOKEN
     HUSTLEOPS_RELEASE_TAG
     HUSTLEOPS_RELEASE_TRIGGER
+    NGINX_TLS_CERT_PATH
+    NGINX_TLS_KEY_PATH
   )
   local digest_refs=(
     HUSTLEOPS_BACKEND_IMAGE
@@ -258,6 +285,7 @@ validate_env() {
   validate_min_length BOOTSTRAP_ADMIN_PASSWORD 16
   validate_cors_origin
   validate_bootstrap_email
+  validate_nginx_tls_files
 }
 
 pull_image() {

@@ -84,6 +84,7 @@ BIND_SOURCES=(
   "file:nginx/security-headers-no-csp.conf"
   "file:nginx/security-headers.conf"
   "file:nginx/nginx.ancillary.conf"
+  "dir:nginx/certs"
 )
 
 shadow_dir() {

@@ -1,10 +1,13 @@
 #!/usr/bin/env node
 
+import { execFile } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { promisify } from "node:util";
 
 const scriptDir = import.meta.dirname;
 const projectRoot = path.resolve(scriptDir, "..");
+const execFileAsync = promisify(execFile);
 
 const REPLACEMENTS = {
   POSTGRES_PASSWORD: "Ho1!postgres-password-for-ci",
@@ -20,6 +23,11 @@ const REPLACEMENTS = {
   N8N_REDIS_PASSWORD: "Ho1!n8n-redis-password-for-ci",
   N8N_ENCRYPTION_KEY: "Ho1!n8n-encryption-key-for-ci-123456",
   N8N_RUNNERS_AUTH_TOKEN: "b".repeat(64),
+  PUBLIC_HOST_ALIASES: "ops.internal.hustleops.local,127.0.0.1",
+  NGINX_HTTP_BIND: "127.0.0.1",
+  NGINX_HTTPS_BIND: "127.0.0.1",
+  NGINX_TLS_CERT_PATH: "./.hustleops/nginx/certs/fullchain.pem",
+  NGINX_TLS_KEY_PATH: "./.hustleops/nginx/certs/privkey.pem",
 };
 
 function parseArgs(argv) {
@@ -66,6 +74,60 @@ function replaceEnvValue(content, key, value) {
   return content.replace(pattern, `${key}=${value}`);
 }
 
+function upsertEnvValue(content, key, value) {
+  const pattern = new RegExp(`^${key}=.*$`, "m");
+  const line = `${key}=${value}`;
+
+  if (pattern.test(content)) {
+    return content.replace(pattern, line);
+  }
+
+  return `${content.endsWith("\n") ? content : `${content}\n`}${line}\n`;
+}
+
+async function writeNginxTestCerts() {
+  const certDir = path.join(projectRoot, ".hustleops", "nginx", "certs");
+  const configFile = path.join(certDir, "openssl.cnf");
+  const certFile = path.join(certDir, "fullchain.pem");
+  const keyFile = path.join(certDir, "privkey.pem");
+
+  await mkdir(certDir, { recursive: true });
+  await writeFile(
+    configFile,
+    [
+      "[req]",
+      "default_bits = 2048",
+      "prompt = no",
+      "default_md = sha256",
+      "distinguished_name = dn",
+      "x509_extensions = v3_req",
+      "",
+      "[dn]",
+      "CN = hustleops.local",
+      "",
+      "[v3_req]",
+      "subjectAltName = DNS:hustleops.local,DNS:ops.internal.hustleops.local,IP:127.0.0.1",
+      "",
+    ].join("\n"),
+  );
+
+  await execFileAsync("openssl", [
+    "req",
+    "-x509",
+    "-nodes",
+    "-newkey",
+    "rsa:2048",
+    "-days",
+    "1",
+    "-keyout",
+    keyFile,
+    "-out",
+    certFile,
+    "-config",
+    configFile,
+  ]);
+}
+
 async function main() {
   const { templateFile, outputFile } = parseArgs(process.argv.slice(2));
   let content = await readFile(templateFile, "utf8");
@@ -74,6 +136,13 @@ async function main() {
     content = replaceEnvValue(content, key, value);
   }
 
+  content = upsertEnvValue(
+    content,
+    "POSTGRES_PASSWORD_ENCODED",
+    encodeURIComponent(REPLACEMENTS.POSTGRES_PASSWORD),
+  );
+
+  await writeNginxTestCerts();
   await mkdir(path.dirname(outputFile), { recursive: true });
   await writeFile(outputFile, content.endsWith("\n") ? content : `${content}\n`);
   process.stdout.write(`Wrote ${outputFile}\n`);

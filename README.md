@@ -11,6 +11,7 @@ The HustleOps GHCR images are public and can be pulled without signing in.
 - Network access to `ghcr.io`
 - `cosign` for release image signature verification
 - `openssl` for generating deployment secrets
+- TLS certificate and private key for the public nginx HTTPS listener, or `openssl` to allow setup to generate a self-signed certificate
 - GNU `timeout` for non-dry-run migration/update flows. On macOS, install with `brew install coreutils` and ensure `timeout` is on `PATH`.
 
 ## Setup
@@ -23,15 +24,19 @@ The HustleOps GHCR images are public and can be pulled without signing in.
 
 2. Replace every `change_me` value in `.env`. The comments in `.env.example` include generation commands for required secrets.
 
-3. Confirm the host directories under `data/` and `logs/` are writable by the matching containers before first start. Logs continue to use Docker stdout by default; use `logs/<service>/` only when file logging is intentionally enabled and shipped off-host.
+3. Set `PUBLIC_HOSTNAME` to the primary DNS name or IP address operators will use. Set `PUBLIC_HOST_ALIASES` to any additional comma-separated DNS names or IP addresses that should be included when setup generates a self-signed certificate.
 
-4. Run the setup flow:
+4. Place production TLS files at `NGINX_TLS_CERT_PATH` and `NGINX_TLS_KEY_PATH`, or leave the defaults and allow setup to generate a self-signed certificate for lab/internal use when prompted. Generated certificates are written under `nginx/certs/`, which is ignored by git.
+
+5. Confirm the host directories under `data/` and `logs/` are writable by the matching containers before first start. Logs continue to use Docker stdout by default; use `logs/<service>/` only when file logging is intentionally enabled and shipped off-host.
+
+6. Run the setup flow:
 
    ```bash
    ./scripts/deploy.sh setup --env-file .env
    ```
 
-   The setup flow validates required tools, verifies release images, captures a PostgreSQL backup, applies migrations, runs the initial-admin bootstrap, starts the core application services, starts n8n, starts the OpenSearch ancillary bundle, exposes ancillary proxy ports, prints Docker Compose status, and prints service access addresses.
+   The setup flow validates required tools, prepares nginx TLS material, verifies release images, captures a PostgreSQL backup, applies migrations, runs the initial-admin bootstrap, starts the core application services, starts n8n, starts the OpenSearch ancillary bundle, exposes ancillary proxy ports, prints Docker Compose status, and prints service access addresses.
 
 ## Update
 
@@ -66,6 +71,8 @@ docker compose --env-file /tmp/hustleops-ci.env -f docker-compose.prod.yml --pro
 ./scripts/preflight.sh --env-file /tmp/hustleops-ci.env --skip-pull --skip-signature-verify
 ```
 
+The CI env generator writes deterministic nginx test certificate files under `.hustleops/nginx/certs/` so HTTPS preflight checks can run without production certificate material.
+
 ## Manual Operations
 
 The unified deploy script calls these lower-level scripts internally. Operators can still run them directly when diagnosing a failed rollout:
@@ -88,11 +95,11 @@ docker compose --env-file .env -f docker-compose.prod.yml --profile ancillary-pu
 
 The default start path publishes:
 
-- HustleOps app: port `80`
+- HustleOps app: port `443` for HTTPS; port `80` redirects to HTTPS
 - n8n: port `5678`
 - OpenSearch Dashboards: port `5601`
 
-After startup, `deploy.sh` prints service access addresses. Set `PUBLIC_HOSTNAME` in `.env` so the deploy script prints concrete service addresses after startup. If `PUBLIC_HOSTNAME` is empty, the script prints `server-ip-or-dns` as a reminder to use the target host address.
+After startup, `deploy.sh` prints service access addresses. Set `PUBLIC_HOSTNAME` in `.env` so the deploy script prints concrete service addresses after startup. If `PUBLIC_HOSTNAME` is empty, the script prints `server-ip-or-dns` as a reminder to use the target host address. Add extra names or IP addresses to `PUBLIC_HOST_ALIASES` when the setup-generated self-signed certificate must be trusted for more than the primary host.
 
 `ANCILLARY_N8N_BIND` and `ANCILLARY_DASHBOARDS_BIND` default to `0.0.0.0`. Restrict these values to a private interface when the host is not already protected by trusted network boundaries such as VPN, private firewall rules, SSO-capable reverse proxy, or equivalent access control.
 

@@ -13,6 +13,23 @@ const checkPinningScript = path.join(projectRoot, "scripts", "ci", "check-action
 const verifyApproverScript = path.join(projectRoot, "scripts", "ci", "verify-production-approver.sh");
 const deployScript = path.join(projectRoot, "scripts", "deploy.sh");
 
+function execFileWithInput(file, args, options, input) {
+  return new Promise((resolve, reject) => {
+    const child = execFile(file, args, options, (error, stdout, stderr) => {
+      if (error) {
+        error.stdout = stdout;
+        error.stderr = stderr;
+        reject(error);
+        return;
+      }
+
+      resolve({ stdout, stderr });
+    });
+
+    child.stdin.end(input);
+  });
+}
+
 function composeServiceBlock(compose, serviceName) {
   const escapedName = serviceName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const match = compose.match(new RegExp(`^  ${escapedName}:\\n[\\s\\S]*?(?=^  [A-Za-z0-9_-]+:\\n|^networks:)`, "m"));
@@ -117,6 +134,23 @@ async function createRecordingPreflightHelper() {
     "#!/bin/sh\nprintf '%s\\n' \"$@\"\n",
   );
   await chmod(preflightPath, 0o755);
+
+  return helperDir;
+}
+
+async function createNoopSetupHelpers() {
+  const helperDir = await mkdtemp(path.join(os.tmpdir(), "hustleops-setup-helper-"));
+
+  await writeFile(
+    path.join(helperDir, "preflight.sh"),
+    "#!/bin/sh\nprintf 'fake preflight %s\\n' \"$*\"\n",
+  );
+  await writeFile(
+    path.join(helperDir, "run-migration.sh"),
+    "#!/bin/sh\nprintf 'fake migration %s\\n' \"$*\"\n",
+  );
+  await chmod(path.join(helperDir, "preflight.sh"), 0o755);
+  await chmod(path.join(helperDir, "run-migration.sh"), 0o755);
 
   return helperDir;
 }
@@ -392,6 +426,63 @@ test("deploy setup dry-run prepares and starts n8n services by default", async (
     stdout.indexOf("data/n8n/app") < stdout.indexOf("n8n-postgres"),
     "n8n app data directory ownership should be fixed before n8n services start during setup",
   );
+});
+
+test("deploy setup continues after confirmation at normal verbosity", async () => {
+  const tmpRoot = await mkdtemp(path.join(os.tmpdir(), "hustleops-deploy-setup-confirm-"));
+  const envFile = path.join(tmpRoot, ".env");
+  const certFile = path.join(tmpRoot, "nginx", "certs", "fullchain.pem");
+  const keyFile = path.join(tmpRoot, "nginx", "certs", "privkey.pem");
+  const fakeDockerBin = await createFakeDockerBin();
+  const helperDir = await createNoopSetupHelpers();
+
+  await writeFile(path.join(fakeDockerBin, "timeout"), "#!/bin/sh\n\"$@\"\n");
+  await chmod(path.join(fakeDockerBin, "timeout"), 0o755);
+  await mkdir(path.dirname(certFile), { recursive: true });
+  await writeFile(certFile, "test certificate\n");
+  await writeFile(keyFile, "test private key\n");
+  await writeFile(
+    envFile,
+    [
+      "PUBLIC_HOSTNAME=ops.example.test",
+      `NGINX_TLS_CERT_PATH=${certFile}`,
+      `NGINX_TLS_KEY_PATH=${keyFile}`,
+      "POSTGRES_PASSWORD=VeryStrongPostgresPassword123!",
+      "",
+    ].join("\n"),
+  );
+
+  const { stdout, stderr } = await execFileWithInput(
+    "bash",
+    [
+      deployScript,
+      "setup",
+      "--env-file",
+      envFile,
+      "--force",
+      "--skip-pull",
+      "--skip-signature-verify",
+      "--skip-bootstrap",
+      "--no-start",
+    ],
+    {
+      cwd: projectRoot,
+      env: {
+        ...process.env,
+        HUSTLEOPS_DEPLOY_SCRIPT_DIR: helperDir,
+        PATH: `${fakeDockerBin}:${process.env.PATH}`,
+      },
+    },
+    "y\n",
+  );
+
+  assert.equal(stderr, "");
+  assert.match(stdout, /Continue\? \[y\/N\]/);
+  assert.match(stdout, /\[1\/7\] Checking required tools and files/);
+  assert.match(stdout, /fake preflight/);
+  assert.match(stdout, /fake migration/);
+  assert.match(stdout, /Skipping bootstrap \(\-\-skip-bootstrap\)/);
+  assert.match(stdout, /\[7\/7\] Skipping service start \(\-\-no-start\)/);
 });
 
 test("deploy setup dry-run fails when nginx TLS files are missing", async () => {

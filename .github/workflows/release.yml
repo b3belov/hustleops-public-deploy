@@ -4,23 +4,17 @@ on:
   push:
     tags:
       - "v*"
-  workflow_dispatch:
-    inputs:
-      version:
-        description: "Release version tag to publish, for example v1.2.3"
-        required: true
-        type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: release-${{ inputs.version || github.ref_name }}
+  group: release-${{ github.ref_name }}
   cancel-in-progress: false
 
 env:
   NODE_VERSION: "24"
-  RELEASE_TAG: ${{ inputs.version || github.ref_name }}
+  RELEASE_TAG: ${{ github.ref_name }}
 
 jobs:
   verify-release-source:
@@ -74,7 +68,6 @@ jobs:
             scripts/deploy.sh \
             scripts/validate-nginx.sh \
             scripts/ci/verify-release-tag-from-main.sh \
-            scripts/ci/verify-production-approver.sh \
             scripts/ci/check-actions-pinning.sh
           node --check scripts/build-public-release-notes.mjs
           node --check scripts/build-public-deploy-release.mjs
@@ -99,32 +92,13 @@ jobs:
           node scripts/build-public-release-notes.mjs \
             --output .hustleops/public-release-notes.md
 
-  approve-production-release:
-    name: approve-production-release
-    runs-on: ubuntu-24.04
-    needs:
-      - build-release
-    if: github.event_name == 'workflow_dispatch'
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-
-      - name: Verify production release approver
-        shell: bash
-        env:
-          PRODUCTION_RELEASE_APPROVER: ${{ vars.PRODUCTION_RELEASE_APPROVER }}
-        run: bash scripts/ci/verify-production-approver.sh "$PRODUCTION_RELEASE_APPROVER"
-
   publish-release:
     name: publish-release
     runs-on: ubuntu-24.04
     needs:
       - build-release
-      - approve-production-release
-    if: github.event_name == 'workflow_dispatch'
     permissions:
       contents: write
-    environment: production
     steps:
       - name: Check out repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd

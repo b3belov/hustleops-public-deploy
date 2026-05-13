@@ -1,6 +1,6 @@
 # Branch And Tag Protection
 
-Committed files provide CI, release verification, CODEOWNERS, templates, and documentation. They do not protect the repository by themselves. A repository admin must configure GitHub rulesets and the production environment.
+Committed files provide CI, release verification, CODEOWNERS, templates, and documentation. They do not protect the repository by themselves. A repository admin must configure GitHub rulesets and the trusted production runner model.
 
 ## Main Branch Ruleset
 
@@ -63,11 +63,10 @@ The `Create Release Tag` workflow uses a dedicated GitHub App installation token
 Set this repo or org variable:
 
 ```text
-RELEASE_TAG_APPROVER
 RELEASE_TAG_APP_ID
 ```
 
-`RELEASE_TAG_APPROVER` must match the GitHub username allowed to run release tag creation. `RELEASE_TAG_APP_ID` must identify the dedicated release-tag GitHub App.
+`RELEASE_TAG_APP_ID` must identify the dedicated release-tag GitHub App.
 
 Set this repository secret:
 
@@ -79,34 +78,9 @@ Rotate the App private key if release ownership changes and do not reuse it for 
 
 ## Production Environment
 
-Create a GitHub Environment:
+The lowered-control workflow model does not require a GitHub deployment environment for release publication or manual deployment. Repository administrators may delete the `production` environment after confirming it has no secrets or variables.
 
-```text
-production
-```
-
-Required settings:
-
-- Required reviewers
-- Prevent self-review
-- Restrict deployment branches/tags to `main` and/or `v*`
-- Store production secrets only in this environment
-
-The `publish-release` job targets this environment so release publication waits for explicit approval when the environment protection rule is enabled. Required environment reviewers should be enabled whenever available. The explicit approver script remains in the workflow as a fallback and extra gate.
-
-Set these repo or org variables:
-
-```text
-PRODUCTION_RELEASE_APPROVER
-PRODUCTION_DEPLOYMENT_APPROVER
-```
-
-`PRODUCTION_RELEASE_APPROVER` is used by the release publication gate. `PRODUCTION_DEPLOYMENT_APPROVER` is used by the manual production deploy gate.
-
-The `Deploy App` workflow uses `PRODUCTION_DEPLOYMENT_APPROVER`, then waits on
-the `production` environment before running on a self-hosted runner labeled
-`production`. Keep production runtime secrets and the production env file out of
-pull request workflows.
+The `Deploy App` workflow still targets a trusted self-hosted runner labeled `production`. Keep production runtime secrets and the production env file on the target host or in the chosen repository/organization secret store for that trusted runner model, not in pull request workflows.
 
 ## Acceptance Checks
 
@@ -117,6 +91,4 @@ pull request workflows.
 - Force pushes and branch deletion for `main` are rejected.
 - Untrusted users cannot create, move, or delete `v*` tags.
 - Release tags outside `main` history fail in the release workflow.
-- Manual release publication fails when `PRODUCTION_RELEASE_APPROVER` is missing or does not match the actor.
-- Manual release tag creation fails when `RELEASE_TAG_APPROVER` is missing or does not match the actor.
-- Manual production deployment fails when `PRODUCTION_DEPLOYMENT_APPROVER` is missing or does not match the actor.
+- Release publication starts automatically after a protected `v*` tag is created and fails if tag source verification or build validation fails.

@@ -51,12 +51,6 @@ jobs:
             exit 1
           fi
 
-      - name: Verify release tag approver
-        shell: bash
-        env:
-          RELEASE_TAG_APPROVER: ${{ vars.RELEASE_TAG_APPROVER }}
-        run: bash scripts/ci/verify-production-approver.sh "$RELEASE_TAG_APPROVER"
-
       - name: Verify release tag GitHub App configuration
         shell: bash
         env:

@@ -126,6 +126,9 @@ services:
       OPENSEARCH_USERNAME: admin
       OPENSEARCH_PASSWORD: ${OPENSEARCH_ADMIN_PASSWORD}
       SERVER_HOST: 0.0.0.0
+      DATA_SOURCE_ENABLED: "true"
+      WORKSPACE_ENABLED: "true"
+      EXPLORE_ENABLED: "true"
     depends_on:
       opensearch:
         condition: service_healthy

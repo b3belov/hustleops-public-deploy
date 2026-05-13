@@ -97,19 +97,19 @@ fail() {
 
 # note: printed at verbosity >= 1 (normal and above)
 note() {
-  [[ "$VERBOSITY" -ge 1 ]] || return
+  [[ "$VERBOSITY" -ge 1 ]] || return 0
   printf '%s\n' "$*"
 }
 
 # verbose_note: printed at verbosity >= 2 (verbose and above)
 verbose_note() {
-  [[ "$VERBOSITY" -ge 2 ]] || return
+  [[ "$VERBOSITY" -ge 2 ]] || return 0
   printf '    %s\n' "$*"
 }
 
 # debug_note: printed at verbosity >= 3 (debug only)
 debug_note() {
-  [[ "$VERBOSITY" -ge 3 ]] || return
+  [[ "$VERBOSITY" -ge 3 ]] || return 0
   printf '[debug] %s\n' "$*"
 }
 

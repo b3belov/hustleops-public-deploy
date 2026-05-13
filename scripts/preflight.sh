@@ -90,12 +90,12 @@ record_cosign_requirement() {
 }
 
 note() {
-  [[ "$PREFLIGHT_VERBOSITY" -ge 1 ]] || return
+  [[ "$PREFLIGHT_VERBOSITY" -ge 1 ]] || return 0
   printf '==> %s\n' "$*"
 }
 
 debug_note() {
-  [[ "$PREFLIGHT_VERBOSITY" -ge 3 ]] || return
+  [[ "$PREFLIGHT_VERBOSITY" -ge 3 ]] || return 0
   printf '[debug] %s\n' "$*"
 }
 

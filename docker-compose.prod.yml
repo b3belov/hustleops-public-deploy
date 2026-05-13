@@ -304,6 +304,8 @@ services:
       - ./nginx/nginx.ancillary.conf:/etc/nginx/nginx.conf:ro
       - ./nginx/security-headers-no-csp.conf:/etc/nginx/security-headers-no-csp.conf:ro
       - ./nginx/security-headers.conf:/etc/nginx/security-headers.conf:ro
+      - ${NGINX_TLS_CERT_PATH:-./nginx/certs/fullchain.pem}:/etc/nginx/tls/fullchain.pem:ro
+      - ${NGINX_TLS_KEY_PATH:-./nginx/certs/privkey.pem}:/etc/nginx/tls/privkey.pem:ro
       - ./logs/nginx-ancillary:/var/log/hustleops:rw
     ports:
       - "${ANCILLARY_N8N_BIND:-0.0.0.0}:5678:5678"

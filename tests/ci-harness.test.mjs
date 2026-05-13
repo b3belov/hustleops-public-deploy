@@ -639,14 +639,23 @@ test("deploy script help documents start and restart stack commands", async () =
   assert.match(deploy, /restart\s+Restart stack/);
 });
 
-test("ancillary ports default to external binds", async () => {
+test("ancillary ports default to HTTPS external binds and mount TLS files", async () => {
   const envExample = await readFile(path.join(projectRoot, ".env.example"), "utf8");
   const compose = await readFile(path.join(projectRoot, "docker-compose.prod.yml"), "utf8");
+  const nginxAncillary = composeServiceBlock(compose, "nginx-ancillary");
 
   assert.match(envExample, /^ANCILLARY_N8N_BIND=0\.0\.0\.0$/m);
   assert.match(envExample, /^ANCILLARY_DASHBOARDS_BIND=0\.0\.0\.0$/m);
   assert.match(compose, /\$\{ANCILLARY_N8N_BIND:-0\.0\.0\.0\}:5678:5678/);
   assert.match(compose, /\$\{ANCILLARY_DASHBOARDS_BIND:-0\.0\.0\.0\}:5601:5601/);
+  assert.match(
+    nginxAncillary,
+    /\$\{NGINX_TLS_CERT_PATH:-\.\/nginx\/certs\/fullchain\.pem\}:\/etc\/nginx\/tls\/fullchain\.pem:ro/,
+  );
+  assert.match(
+    nginxAncillary,
+    /\$\{NGINX_TLS_KEY_PATH:-\.\/nginx\/certs\/privkey\.pem\}:\/etc\/nginx\/tls\/privkey\.pem:ro/,
+  );
 });
 
 test("core nginx publishes HTTPS and mounts TLS files from env paths", async () => {
@@ -701,17 +710,29 @@ test("OpenSearch Dashboards proxy leaves CSP to the upstream service", async () 
 
   assert.match(
     ancillaryNginx,
-    /listen 5601;[\s\S]*include \/etc\/nginx\/security-headers-no-csp\.conf;/,
+    /listen 5601 ssl;[\s\S]*include \/etc\/nginx\/security-headers-no-csp\.conf;/,
   );
   assert.doesNotMatch(
     ancillaryNginx,
-    /listen 5601;[\s\S]*include \/etc\/nginx\/security-headers\.conf;/,
+    /listen 5601 ssl;[\s\S]*include \/etc\/nginx\/security-headers\.conf;/,
   );
   assert.match(
     compose,
     /- \.\/nginx\/security-headers-no-csp\.conf:\/etc\/nginx\/security-headers-no-csp\.conf:ro/,
   );
   assert.match(validateNginx, /security-headers-no-csp\.conf/);
+});
+
+test("ancillary nginx serves n8n and OpenSearch Dashboards over HTTPS", async () => {
+  const nginx = await readFile(path.join(projectRoot, "nginx", "nginx.ancillary.conf"), "utf8");
+
+  assert.match(nginx, /listen 5678 ssl;/);
+  assert.match(nginx, /listen 5601 ssl;/);
+  assert.match(nginx, /ssl_certificate \/etc\/nginx\/tls\/fullchain\.pem;/);
+  assert.match(nginx, /ssl_certificate_key \/etc\/nginx\/tls\/privkey\.pem;/);
+  assert.match(nginx, /Strict-Transport-Security "max-age=31536000; includeSubDomains" always;/);
+  assert.match(nginx, /listen 5678 ssl;[\s\S]*proxy_pass http:\/\/n8n:5678;/);
+  assert.match(nginx, /listen 5601 ssl;[\s\S]*proxy_pass http:\/\/opensearch-dashboards:5601;/);
 });
 
 test("core nginx redirects HTTP and serves the app over HTTPS", async () => {
@@ -991,8 +1012,8 @@ test("deploy start dry-run prints service access addresses", async () => {
   assert.equal(stderr, "");
   assert.match(stdout, /Service access addresses:/);
   assert.match(stdout, /HustleOps app: https:\/\/ops\.example\.test/);
-  assert.match(stdout, /n8n: http:\/\/ops\.example\.test:5678/);
-  assert.match(stdout, /OpenSearch Dashboards: http:\/\/ops\.example\.test:5601/);
+  assert.match(stdout, /n8n: https:\/\/ops\.example\.test:5678/);
+  assert.match(stdout, /OpenSearch Dashboards: https:\/\/ops\.example\.test:5601/);
 });
 
 test("operator docs describe default ancillary exposure and debug behavior", async () => {
@@ -1006,10 +1027,12 @@ test("operator docs describe default ancillary exposure and debug behavior", asy
   assert.match(readme, /After startup, `deploy\.sh` prints service access addresses/);
   assert.match(readme, /PUBLIC_HOST_ALIASES/);
   assert.match(readme, /port `443` for HTTPS; port `80` redirects to HTTPS/);
+  assert.match(readme, /n8n: port `5678` for HTTPS/);
+  assert.match(readme, /OpenSearch Dashboards: port `5601` for HTTPS/);
   assert.match(readme, /setup to generate a self-signed certificate/);
   assert.match(scriptsReadme, /starts core, n8n, and the OpenSearch\/Dashboards ancillary bundle by default/);
   assert.match(scriptsReadme, /debug mode shows Docker pull progress/);
-  assert.match(scriptsReadme, /self-signed public nginx certificate/);
+  assert.match(scriptsReadme, /self-signed nginx certificate/);
   assert.match(scriptsReadme, /NGINX_TLS_CERT_PATH/);
 });
 

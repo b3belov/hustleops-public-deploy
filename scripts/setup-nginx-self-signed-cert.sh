@@ -11,7 +11,7 @@ usage() {
   cat <<'EOF'
 Usage: ./scripts/setup-nginx-self-signed-cert.sh [--env-file PATH] [--days DAYS]
 
-Generate a self-signed certificate for the public nginx HTTPS listener.
+Generate a self-signed certificate for the nginx HTTPS listeners.
 The certificate SANs are built from PUBLIC_HOSTNAME plus PUBLIC_HOST_ALIASES.
 EOF
 }

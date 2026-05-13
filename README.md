@@ -11,7 +11,7 @@ The HustleOps GHCR images are public and can be pulled without signing in.
 - Network access to `ghcr.io`
 - `cosign` for release image signature verification
 - `openssl` for generating deployment secrets
-- TLS certificate and private key for the public nginx HTTPS listener, or `openssl` to allow setup to generate a self-signed certificate
+- TLS certificate and private key for the nginx HTTPS listeners, or `openssl` to allow setup to generate a self-signed certificate
 - GNU `timeout` for non-dry-run migration/update flows. On macOS, install with `brew install coreutils` and ensure `timeout` is on `PATH`.
 
 ## Setup
@@ -26,7 +26,7 @@ The HustleOps GHCR images are public and can be pulled without signing in.
 
 3. Set `PUBLIC_HOSTNAME` to the primary DNS name or IP address operators will use. Set `PUBLIC_HOST_ALIASES` to any additional comma-separated DNS names or IP addresses that should be included when setup generates a self-signed certificate.
 
-4. Place production TLS files at `NGINX_TLS_CERT_PATH` and `NGINX_TLS_KEY_PATH`, or leave the defaults and allow setup to generate a self-signed certificate for lab/internal use when prompted. Generated certificates are written under `nginx/certs/`, which is ignored by git.
+4. Place production TLS files at `NGINX_TLS_CERT_PATH` and `NGINX_TLS_KEY_PATH`, or leave the defaults and allow setup to generate a self-signed certificate for lab/internal use when prompted. The same certificate is mounted into the app and ancillary nginx proxies. Generated certificates are written under `nginx/certs/`, which is ignored by git.
 
 5. Confirm the host directories under `data/` and `logs/` are writable by the matching containers before first start. Logs continue to use Docker stdout by default; use `logs/<service>/` only when file logging is intentionally enabled and shipped off-host.
 
@@ -56,7 +56,7 @@ After pulling a newer public deploy repository release, run:
 
 The update flow syncs release-managed image and metadata values from `.env.example` into `.env`, runs preflight checks, captures a PostgreSQL backup, applies pending migrations, runs the idempotent bootstrap contract, recreates core application services, starts n8n and the OpenSearch ancillary bundle, publishes ancillary proxy ports, and prints service status plus access addresses. Operator-provided secrets in `.env` are preserved.
 
-n8n and the OpenSearch ancillary bundle start by default and are exposed through the ancillary reverse proxy. OpenSearch and OpenSearch Dashboards are started together under the `ancillary-public` Compose profile. Use `--skip-ancillary` when those ports and OpenSearch services must not be published or started, and use `--skip-n8n` when the n8n runtime itself should not be started.
+n8n and the OpenSearch ancillary bundle start by default and are exposed over HTTPS through the ancillary reverse proxy. OpenSearch and OpenSearch Dashboards are started together under the `ancillary-public` Compose profile. Use `--skip-ancillary` when those ports and OpenSearch services must not be published or started, and use `--skip-n8n` when the n8n runtime itself should not be started.
 
 ## Local Validation
 
@@ -96,8 +96,8 @@ docker compose --env-file .env -f docker-compose.prod.yml --profile ancillary-pu
 The default start path publishes:
 
 - HustleOps app: port `443` for HTTPS; port `80` redirects to HTTPS
-- n8n: port `5678`
-- OpenSearch Dashboards: port `5601`
+- n8n: port `5678` for HTTPS
+- OpenSearch Dashboards: port `5601` for HTTPS
 
 After startup, `deploy.sh` prints service access addresses. Set `PUBLIC_HOSTNAME` in `.env` so the deploy script prints concrete service addresses after startup. If `PUBLIC_HOSTNAME` is empty, the script prints `server-ip-or-dns` as a reminder to use the target host address. Add extra names or IP addresses to `PUBLIC_HOST_ALIASES` when the setup-generated self-signed certificate must be trusted for more than the primary host.
 

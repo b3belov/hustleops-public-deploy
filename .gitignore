@@ -24,6 +24,10 @@ logs/**
 !logs/**/
 !logs/**/.gitkeep
 
+nginx/certs/*
+!nginx/certs/
+!nginx/certs/.gitkeep
+
 state/**
 !state/
 !state/.gitkeep

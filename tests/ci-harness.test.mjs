@@ -333,9 +333,22 @@ test("deploy start dry-run prepares OpenSearch data directory with ancillary ser
 test("deploy setup dry-run prepares and starts n8n services by default", async () => {
   const tmpRoot = await mkdtemp(path.join(os.tmpdir(), "hustleops-deploy-setup-n8n-"));
   const envFile = path.join(tmpRoot, ".env");
+  const certFile = path.join(tmpRoot, "nginx", "certs", "fullchain.pem");
+  const keyFile = path.join(tmpRoot, "nginx", "certs", "privkey.pem");
   const fakeDockerBin = await createFakeDockerBin();
 
-  await writeFile(envFile, "HUSTLEOPS_TEST_ENV=1\n");
+  await mkdir(path.dirname(certFile), { recursive: true });
+  await writeFile(certFile, "test certificate\n");
+  await writeFile(keyFile, "test private key\n");
+  await writeFile(
+    envFile,
+    [
+      "HUSTLEOPS_TEST_ENV=1",
+      `NGINX_TLS_CERT_PATH=${certFile}`,
+      `NGINX_TLS_KEY_PATH=${keyFile}`,
+      "",
+    ].join("\n"),
+  );
 
   const { stdout, stderr } = await execFileAsync(
     "bash",
@@ -378,6 +391,43 @@ test("deploy setup dry-run prepares and starts n8n services by default", async (
   assert.ok(
     stdout.indexOf("data/n8n/app") < stdout.indexOf("n8n-postgres"),
     "n8n app data directory ownership should be fixed before n8n services start during setup",
+  );
+});
+
+test("deploy setup dry-run fails when nginx TLS files are missing", async () => {
+  const tmpRoot = await mkdtemp(path.join(os.tmpdir(), "hustleops-deploy-setup-missing-tls-"));
+  const envFile = path.join(tmpRoot, ".env");
+  const fakeDockerBin = await createFakeDockerBin();
+
+  await writeFile(envFile, "HUSTLEOPS_TEST_ENV=1\n");
+
+  await assert.rejects(
+    execFileAsync(
+      "bash",
+      [
+        deployScript,
+        "setup",
+        "--env-file",
+        envFile,
+        "--dry-run",
+        "--yes",
+        "--skip-pull",
+        "--skip-signature-verify",
+      ],
+      {
+        cwd: projectRoot,
+        env: {
+          ...process.env,
+          PATH: `${fakeDockerBin}:${process.env.PATH}`,
+        },
+      },
+    ),
+    (error) => {
+      assert.equal(error.code, 1);
+      assert.match(error.stderr, /nginx TLS certificate files are missing/);
+      assert.doesNotMatch(error.stdout, /Running preflight checks/);
+      return true;
+    },
   );
 });
 
@@ -508,6 +558,27 @@ test("ancillary ports default to external binds", async () => {
   assert.match(compose, /\$\{ANCILLARY_DASHBOARDS_BIND:-0\.0\.0\.0\}:5601:5601/);
 });
 
+test("core nginx publishes HTTPS and mounts TLS files from env paths", async () => {
+  const envExample = await readFile(path.join(projectRoot, ".env.example"), "utf8");
+  const compose = await readFile(path.join(projectRoot, "docker-compose.prod.yml"), "utf8");
+  const nginx = composeServiceBlock(compose, "nginx");
+
+  assert.match(envExample, /^PUBLIC_HOST_ALIASES=$/m);
+  assert.match(envExample, /^NGINX_TLS_CERT_PATH=\.\/nginx\/certs\/fullchain\.pem$/m);
+  assert.match(envExample, /^NGINX_TLS_KEY_PATH=\.\/nginx\/certs\/privkey\.pem$/m);
+
+  assert.match(nginx, /- "\$\{NGINX_HTTP_BIND:-0\.0\.0\.0\}:80:8080"/);
+  assert.match(nginx, /- "\$\{NGINX_HTTPS_BIND:-0\.0\.0\.0\}:443:8443"/);
+  assert.match(
+    nginx,
+    /\$\{NGINX_TLS_CERT_PATH:-\.\/nginx\/certs\/fullchain\.pem\}:\/etc\/nginx\/tls\/fullchain\.pem:ro/,
+  );
+  assert.match(
+    nginx,
+    /\$\{NGINX_TLS_KEY_PATH:-\.\/nginx\/certs\/privkey\.pem\}:\/etc\/nginx\/tls\/privkey\.pem:ro/,
+  );
+});
+
 test("OpenSearch and Dashboards services are grouped under the ancillary profile", async () => {
   const compose = await readFile(path.join(projectRoot, "docker-compose.prod.yml"), "utf8");
   const backend = composeServiceBlock(compose, "backend");
@@ -550,6 +621,21 @@ test("OpenSearch Dashboards proxy leaves CSP to the upstream service", async () 
     /- \.\/nginx\/security-headers-no-csp\.conf:\/etc\/nginx\/security-headers-no-csp\.conf:ro/,
   );
   assert.match(validateNginx, /security-headers-no-csp\.conf/);
+});
+
+test("core nginx redirects HTTP and serves the app over HTTPS", async () => {
+  const nginx = await readFile(path.join(projectRoot, "nginx", "nginx.conf"), "utf8");
+
+  assert.match(nginx, /listen 8080;/);
+  assert.match(nginx, /return 301 https:\/\/\$host\$request_uri;/);
+  assert.match(nginx, /listen 8443 ssl;/);
+  assert.match(nginx, /http2 on;/);
+  assert.match(nginx, /ssl_certificate \/etc\/nginx\/tls\/fullchain\.pem;/);
+  assert.match(nginx, /ssl_certificate_key \/etc\/nginx\/tls\/privkey\.pem;/);
+  assert.match(nginx, /Strict-Transport-Security "max-age=31536000; includeSubDomains" always;/);
+  assert.match(nginx, /location \/ \{[\s\S]*proxy_pass http:\/\/frontend:8080;/);
+  assert.match(nginx, /location \/api\/ \{[\s\S]*proxy_pass http:\/\/backend:3000\/api\/;/);
+  assert.match(nginx, /location \/socket\.io\/ \{[\s\S]*proxy_pass http:\/\/backend:3000\/socket\.io\/;/);
 });
 
 test("postgres 18 services mount persistent parent directories", async () => {
@@ -713,6 +799,76 @@ test("preflight script includes install guidance for docker node and cosign", as
   assert.match(preflight, /Install missing tools now\? \[y\/N\]/);
 });
 
+test("setup flow can prompt for self-signed nginx certificate generation", async () => {
+  const deploy = await readFile(path.join(projectRoot, "scripts", "deploy.sh"), "utf8");
+
+  assert.match(deploy, /--generate-self-signed-cert/);
+  assert.match(deploy, /Generate a self-signed certificate for these names\?/);
+  assert.match(deploy, /setup-nginx-self-signed-cert\.sh/);
+  assert.match(deploy, /ensure_nginx_tls_material/);
+});
+
+test("preflight validates nginx TLS certificate paths", async () => {
+  const preflight = await readFile(path.join(projectRoot, "scripts", "preflight.sh"), "utf8");
+
+  assert.match(preflight, /NGINX_TLS_CERT_PATH/);
+  assert.match(preflight, /NGINX_TLS_KEY_PATH/);
+  assert.match(preflight, /required_plain=\([\s\S]*NGINX_TLS_CERT_PATH[\s\S]*NGINX_TLS_KEY_PATH/);
+  assert.match(preflight, /validate_nginx_tls_files/);
+  assert.match(preflight, /nginx TLS certificate file not found/);
+});
+
+test("nginx validation script supplies temporary TLS files", async () => {
+  const validateNginx = await readFile(path.join(projectRoot, "scripts", "validate-nginx.sh"), "utf8");
+
+  assert.match(validateNginx, /mktemp -d/);
+  assert.match(validateNginx, /openssl req -x509/);
+  assert.match(validateNginx, /\/etc\/nginx\/tls\/fullchain\.pem:ro/);
+  assert.match(validateNginx, /\/etc\/nginx\/tls\/privkey\.pem:ro/);
+});
+
+test("self-signed nginx helper creates DNS and IP SANs", async () => {
+  const tmpRoot = await mkdtemp(path.join(os.tmpdir(), "hustleops-nginx-cert-"));
+  const envFile = path.join(tmpRoot, ".env");
+  const certFile = path.join(tmpRoot, "nginx", "certs", "fullchain.pem");
+  const keyFile = path.join(tmpRoot, "nginx", "certs", "privkey.pem");
+
+  await writeFile(
+    envFile,
+    [
+      "PUBLIC_HOSTNAME=ops.example.test",
+      "PUBLIC_HOST_ALIASES=ops.internal.example.test,10.0.0.15,192.168.1.20",
+      `NGINX_TLS_CERT_PATH=${certFile}`,
+      `NGINX_TLS_KEY_PATH=${keyFile}`,
+      "",
+    ].join("\n"),
+  );
+
+  const helper = path.join(projectRoot, "scripts", "setup-nginx-self-signed-cert.sh");
+  await execFileAsync("bash", [helper, "--env-file", envFile], { cwd: projectRoot });
+
+  const { stdout } = await execFileAsync("openssl", ["x509", "-in", certFile, "-noout", "-text"], {
+    cwd: projectRoot,
+  });
+
+  assert.match(stdout, /DNS:ops\.example\.test/);
+  assert.match(stdout, /DNS:ops\.internal\.example\.test/);
+  assert.match(stdout, /IP Address:10\.0\.0\.15/);
+  assert.match(stdout, /IP Address:192\.168\.1\.20/);
+});
+
+test("CI env generator writes nginx TLS fixture paths", async () => {
+  const script = await readFile(path.join(projectRoot, "scripts", "make-ci-env.mjs"), "utf8");
+
+  assert.match(script, /NGINX_TLS_CERT_PATH: "\.\/\.hustleops\/nginx\/certs\/fullchain\.pem"/);
+  assert.match(script, /NGINX_TLS_KEY_PATH: "\.\/\.hustleops\/nginx\/certs\/privkey\.pem"/);
+  assert.match(script, /writeNginxTestCerts/);
+  assert.match(script, /execFileAsync\("openssl"/);
+  assert.match(script, /subjectAltName = DNS:hustleops\.local,DNS:ops\.internal\.hustleops\.local,IP:127\.0\.0\.1/);
+  assert.match(script, /POSTGRES_PASSWORD_ENCODED/);
+  assert.match(script, /encodeURIComponent\(REPLACEMENTS\.POSTGRES_PASSWORD\)/);
+});
+
 test("deploy start dry-run prints service access addresses", async () => {
   const tmpRoot = await mkdtemp(path.join(os.tmpdir(), "hustleops-deploy-addresses-"));
   const envFile = path.join(tmpRoot, ".env");
@@ -742,7 +898,7 @@ test("deploy start dry-run prints service access addresses", async () => {
 
   assert.equal(stderr, "");
   assert.match(stdout, /Service access addresses:/);
-  assert.match(stdout, /HustleOps app: http:\/\/ops\.example\.test/);
+  assert.match(stdout, /HustleOps app: https:\/\/ops\.example\.test/);
   assert.match(stdout, /n8n: http:\/\/ops\.example\.test:5678/);
   assert.match(stdout, /OpenSearch Dashboards: http:\/\/ops\.example\.test:5601/);
 });
@@ -756,8 +912,13 @@ test("operator docs describe default ancillary exposure and debug behavior", asy
   assert.match(readme, /Use `--skip-ancillary`/);
   assert.match(readme, /`--debug` leaves Docker image pull progress visible/);
   assert.match(readme, /After startup, `deploy\.sh` prints service access addresses/);
+  assert.match(readme, /PUBLIC_HOST_ALIASES/);
+  assert.match(readme, /port `443` for HTTPS; port `80` redirects to HTTPS/);
+  assert.match(readme, /setup to generate a self-signed certificate/);
   assert.match(scriptsReadme, /starts core, n8n, and the OpenSearch\/Dashboards ancillary bundle by default/);
   assert.match(scriptsReadme, /debug mode shows Docker pull progress/);
+  assert.match(scriptsReadme, /self-signed public nginx certificate/);
+  assert.match(scriptsReadme, /NGINX_TLS_CERT_PATH/);
 });
 
 test("pr checks workflow exposes stable required check names", async () => {

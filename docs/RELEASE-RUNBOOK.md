@@ -26,6 +26,10 @@ docker compose --env-file .env -f docker-compose.prod.yml config
 ./scripts/validate-nginx.sh
 ```
 
+HTTPS validation depends on readable nginx TLS files. For CI and local dry-runs,
+generate `.hustleops/ci.env` with `scripts/make-ci-env.mjs`; it writes
+deterministic test cert fixtures under `.hustleops/nginx/certs/`.
+
 ## Persistence Layout
 
 - `data/postgres/` stores HustleOps PostgreSQL data on the host; Postgres 18 keeps the active cluster under `data/postgres/18/docker/`.

@@ -27,6 +27,7 @@ NO_START=0
 DRY_RUN=0
 YES=0
 FORCE=0
+GENERATE_SELF_SIGNED_CERT=0
 # Verbosity levels:
 #   0 = quiet   — errors only
 #   1 = normal  — step banners (default)
@@ -73,6 +74,8 @@ Options:
   --force
   --dry-run
   --yes
+  --generate-self-signed-cert
+                  Generate a self-signed nginx certificate during setup when TLS files are missing
   --verbosity N    Set verbosity level (0=quiet, 1=normal, 2=verbose, 3=debug)
   --verbose        Alias for --verbosity 2
   --quiet          Alias for --verbosity 0
@@ -459,6 +462,10 @@ while [[ $# -gt 0 ]]; do
       YES=1
       shift
       ;;
+    --generate-self-signed-cert)
+      GENERATE_SELF_SIGNED_CERT=1
+      shift
+      ;;
     --verbosity)
       [[ $# -ge 2 ]] || fail "Missing value for --verbosity."
       [[ "$2" =~ ^[0-3]$ ]] || fail "--verbosity must be 0, 1, 2, or 3."
@@ -786,6 +793,154 @@ public_access_host() {
   printf 'server-ip-or-dns\n'
 }
 
+resolve_project_path() {
+  local value="$1"
+
+  if [[ "$value" = /* ]]; then
+    printf '%s\n' "$value"
+    return
+  fi
+
+  printf '%s\n' "$PROJECT_ROOT/${value#./}"
+}
+
+nginx_tls_cert_file() {
+  local value
+
+  value="$(read_env_value NGINX_TLS_CERT_PATH)"
+  [[ -n "$value" ]] || value="./nginx/certs/fullchain.pem"
+  resolve_project_path "$value"
+}
+
+nginx_tls_key_file() {
+  local value
+
+  value="$(read_env_value NGINX_TLS_KEY_PATH)"
+  [[ -n "$value" ]] || value="./nginx/certs/privkey.pem"
+  resolve_project_path "$value"
+}
+
+append_nginx_name() {
+  local value="$1"
+  local existing
+
+  value="${value#"${value%%[![:space:]]*}"}"
+  value="${value%"${value##*[![:space:]]}"}"
+  [[ -n "$value" ]] || return 0
+
+  if [[ "$NGINX_CERT_NAMES_COUNT" -gt 0 ]]; then
+    for existing in "${NGINX_CERT_NAMES[@]}"; do
+      [[ "$existing" == "$value" ]] && return 0
+    done
+  fi
+
+  NGINX_CERT_NAMES+=("$value")
+  NGINX_CERT_NAMES_COUNT=$((NGINX_CERT_NAMES_COUNT + 1))
+}
+
+is_ip_address() {
+  local value="$1"
+
+  [[ "$value" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ || "$value" == *:* ]]
+}
+
+join_values() {
+  local first=1 value
+
+  for value in "$@"; do
+    if [[ "$first" -eq 1 ]]; then
+      printf '%s' "$value"
+      first=0
+    else
+      printf ', %s' "$value"
+    fi
+  done
+}
+
+print_nginx_cert_names() {
+  local name aliases
+  local dns_names=()
+  local ip_names=()
+  local dns_count=0
+  local ip_count=0
+
+  NGINX_CERT_NAMES=()
+  NGINX_CERT_NAMES_COUNT=0
+  append_nginx_name "$(read_env_value PUBLIC_HOSTNAME)"
+  aliases="$(read_env_value PUBLIC_HOST_ALIASES)"
+  if [[ -n "$aliases" ]]; then
+    IFS=',' read -ra alias_values <<< "$aliases"
+    for alias in "${alias_values[@]}"; do
+      append_nginx_name "$alias"
+    done
+  fi
+
+  if [[ "$NGINX_CERT_NAMES_COUNT" -gt 0 ]]; then
+    for name in "${NGINX_CERT_NAMES[@]}"; do
+      if is_ip_address "$name"; then
+        ip_names+=("$name")
+        ip_count=$((ip_count + 1))
+      else
+        dns_names+=("$name")
+        dns_count=$((dns_count + 1))
+      fi
+    done
+  fi
+
+  if [[ "$dns_count" -gt 0 ]]; then
+    printf '  DNS: '
+    join_values "${dns_names[@]}"
+    printf '\n'
+  fi
+  if [[ "$ip_count" -gt 0 ]]; then
+    printf '  IP: '
+    join_values "${ip_names[@]}"
+    printf '\n'
+  fi
+}
+
+ensure_nginx_tls_material() {
+  local cert_file key_file answer
+
+  [[ "$COMMAND" == "setup" ]] || return 0
+
+  cert_file="$(nginx_tls_cert_file)"
+  key_file="$(nginx_tls_key_file)"
+  if [[ -f "$cert_file" && -f "$key_file" ]]; then
+    return 0
+  fi
+
+  if [[ "$GENERATE_SELF_SIGNED_CERT" -eq 1 ]]; then
+    if [[ "$DRY_RUN" -eq 1 ]]; then
+      printf 'DRY RUN:'
+      printf ' %q' "$HELPER_DIR/setup-nginx-self-signed-cert.sh" --env-file "$ENV_FILE"
+      printf '\n'
+      return 0
+    fi
+
+    "$HELPER_DIR/setup-nginx-self-signed-cert.sh" --env-file "$ENV_FILE"
+    return 0
+  fi
+
+  if [[ "$DRY_RUN" -eq 1 || ! -t 0 ]]; then
+    fail "nginx TLS certificate files are missing. Provide NGINX_TLS_CERT_PATH and NGINX_TLS_KEY_PATH files, or re-run setup with --generate-self-signed-cert."
+  fi
+
+  printf 'Nginx TLS certificate files were not found.\n' >&2
+  printf 'Generate a self-signed certificate for these names?\n' >&2
+  print_nginx_cert_names >&2
+  printf 'Continue? [y/N] ' >&2
+  read -r answer
+  case "$answer" in
+    y|Y|yes|YES)
+      "$HELPER_DIR/setup-nginx-self-signed-cert.sh" --env-file "$ENV_FILE"
+      ;;
+    *)
+      fail "nginx TLS certificate files are required before preflight."
+      ;;
+  esac
+}
+
 print_access_addresses() {
   local host
 
@@ -794,7 +949,7 @@ print_access_addresses() {
 
   note ""
   note "Service access addresses:"
-  note "  HustleOps app: http://$host"
+  note "  HustleOps app: https://$host"
 
   if [[ "$SKIP_N8N" -eq 0 && "$SKIP_ANCILLARY" -eq 0 ]]; then
     note "  n8n: http://$host:5678"
@@ -975,23 +1130,25 @@ run_setup_flow() {
   confirm_production_action
   guard_setup_not_already_done
 
-  step 1 6 "Checking required tools and files"
+  step 1 7 "Checking required tools and files"
   check_tools
   check_files
-  step 2 6 "Syncing release-managed environment values"
+  step 2 7 "Syncing release-managed environment values"
   sync_release_env
   sync_derived_env
-  step 3 6 "Running preflight checks"
+  step 3 7 "Preparing nginx TLS certificate"
+  ensure_nginx_tls_material
+  step 4 7 "Running preflight checks"
   run_preflight
-  step 4 6 "Applying database migrations"
+  step 5 7 "Applying database migrations"
   run_migration
-  step 5 6 "Running bootstrap"
+  step 6 7 "Running bootstrap"
   run_bootstrap
   if [[ "$NO_START" -eq 0 ]]; then
-    step 6 6 "Starting core, n8n, and ancillary services"
+    step 7 7 "Starting core, n8n, and ancillary services"
     start_stack_services
   else
-    step 6 6 "Skipping service start (--no-start)"
+    step 7 7 "Skipping service start (--no-start)"
   fi
 }
 

@@ -575,6 +575,29 @@ test("deploy start dry-run can skip ancillary proxy explicitly", async () => {
   assert.doesNotMatch(stdout, /--profile ancillary-public[\s\S]* nginx-ancillary/);
 });
 
+test("deploy down dry-run includes ancillary profile services", async () => {
+  const tmpRoot = await mkdtemp(path.join(os.tmpdir(), "hustleops-deploy-down-ancillary-"));
+  const envFile = path.join(tmpRoot, ".env");
+  const fakeDockerBin = await createFakeDockerBin();
+
+  await writeFile(envFile, "HUSTLEOPS_TEST_ENV=1\n");
+
+  const { stdout, stderr } = await execFileAsync(
+    "bash",
+    [deployScript, "down", "--env-file", envFile, "--dry-run", "--yes"],
+    {
+      cwd: projectRoot,
+      env: {
+        ...process.env,
+        PATH: `${fakeDockerBin}:${process.env.PATH}`,
+      },
+    },
+  );
+
+  assert.equal(stderr, "");
+  assert.match(stdout, /DRY RUN: docker compose [\s\S]*--profile ancillary-public[\s\S]* down/);
+});
+
 test("deploy start dry-run skip-n8n also skips ancillary proxy", async () => {
   const tmpRoot = await mkdtemp(path.join(os.tmpdir(), "hustleops-deploy-skip-n8n-"));
   const envFile = path.join(tmpRoot, ".env");

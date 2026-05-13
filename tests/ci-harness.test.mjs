@@ -703,11 +703,19 @@ test("ancillary proxy waits for n8n readiness before serving traffic", async () 
   );
 });
 
-test("OpenSearch Dashboards proxy leaves CSP to the upstream service", async () => {
+test("ancillary app proxies leave CSP to upstream services", async () => {
   const ancillaryNginx = await readFile(path.join(projectRoot, "nginx", "nginx.ancillary.conf"), "utf8");
   const compose = await readFile(path.join(projectRoot, "docker-compose.prod.yml"), "utf8");
   const validateNginx = await readFile(path.join(projectRoot, "scripts", "validate-nginx.sh"), "utf8");
 
+  assert.match(
+    ancillaryNginx,
+    /listen 5678 ssl;[\s\S]*include \/etc\/nginx\/security-headers-no-csp\.conf;/,
+  );
+  assert.doesNotMatch(
+    ancillaryNginx,
+    /listen 5678 ssl;[\s\S]*include \/etc\/nginx\/security-headers\.conf;/,
+  );
   assert.match(
     ancillaryNginx,
     /listen 5601 ssl;[\s\S]*include \/etc\/nginx\/security-headers-no-csp\.conf;/,

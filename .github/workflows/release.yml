@@ -97,8 +97,6 @@ jobs:
     runs-on: ubuntu-24.04
     needs:
       - build-release
-    permissions:
-      contents: write
     steps:
       - name: Check out repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
@@ -120,14 +118,45 @@ jobs:
             --output .hustleops/public-release-notes.md \
             --github-output "$GITHUB_OUTPUT"
 
+      - name: Verify release GitHub App configuration
+        shell: bash
+        env:
+          RELEASE_APP_ID: ${{ vars.RELEASE_APP_ID }}
+          RELEASE_APP_PRIVATE_KEY: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "$RELEASE_APP_ID" ]]; then
+            echo "RELEASE_APP_ID is required to publish GitHub Releases." >&2
+            exit 2
+          fi
+
+          if [[ -z "$RELEASE_APP_PRIVATE_KEY" ]]; then
+            echo "RELEASE_APP_PRIVATE_KEY is required to publish GitHub Releases." >&2
+            exit 2
+          fi
+
+      - name: Create release GitHub App token
+        id: release-token
+        uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3
+        with:
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
+
       - name: Publish GitHub Release
         shell: bash
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.release-token.outputs.token }}
           RELEASE_TITLE: HustleOps Public Deploy ${{ env.RELEASE_TAG }}
           RELEASE_RECORD_FILE: ${{ steps.release.outputs.release_record_file }}
         run: |
           set -euo pipefail
+
+          if [[ -z "$GH_TOKEN" ]]; then
+            echo "Release GitHub App token is required to publish GitHub Releases." >&2
+            exit 2
+          fi
 
           release_target="$(git rev-parse "refs/tags/${RELEASE_TAG}^{commit}")"
           release_assets=(release-manifest.json release-verification.json)

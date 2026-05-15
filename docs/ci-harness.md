@@ -32,7 +32,7 @@ Jobs:
 - `build-release`
 - `publish-release`
 
-`build-release` depends on `verify-release-source`. `publish-release` depends on `build-release`, has `contents: write`, and runs automatically on verified `v*` tag pushes. All other release jobs keep `contents: read`.
+`build-release` depends on `verify-release-source`. `publish-release` depends on `build-release` and runs automatically on verified `v*` tag pushes. The workflow keeps the default `GITHUB_TOKEN` read-only; only the release GitHub App installation token receives `contents: write` for publication.
 
 ## Release Tag Verification
 
@@ -46,9 +46,9 @@ unchecked feature branch -> manual v1.2.3 tag -> release workflow -> production 
 
 ## Release Tag Creation
 
-`.github/workflows/create-release-tag.yml` is the preferred release tag creation path. It accepts `version`, validates `vMAJOR.MINOR.PATCH`, checks out `main` with persisted credentials disabled, rejects existing tags, creates an annotated tag, and pushes it with a dedicated release-tag GitHub App token. The workflow keeps `contents: read` for the default `GITHUB_TOKEN`; only the App installation token receives `contents: write` for the tag push.
+`.github/workflows/create-release-tag.yml` is the preferred release tag creation path. It accepts `version`, validates `vMAJOR.MINOR.PATCH`, checks out `main` with persisted credentials disabled, rejects existing tags, creates an annotated tag, and pushes it with the release GitHub App token. The workflow keeps `contents: read` for the default `GITHUB_TOKEN`; only the App installation token receives `contents: write` for the tag push.
 
-For repositories with protected `v*` tag creation, configure `RELEASE_TAG_APP_ID` as a repo or org variable and `RELEASE_TAG_APP_PRIVATE_KEY` as a repository secret for a dedicated GitHub App that is allowed to create release tags.
+For repositories with protected `v*` tag creation and GitHub Release publication, configure `RELEASE_APP_ID` as a repo or org variable and `RELEASE_APP_PRIVATE_KEY` as a repository secret for the release GitHub App.
 
 ## GitHub Actions Hardening
 
@@ -94,5 +94,6 @@ permissions:
 - Do not expose production secrets to untrusted branches or forked PRs.
 - Keep production runtime secrets on the target host or in repository/organization secret stores selected for the runner model.
 - Keep release verification and build jobs free of production secrets.
-- Keep release-tag GitHub App private keys separate from production runtime secrets.
-- Configure `PUBLIC_DEPLOY_UPDATE_DEPLOY_KEY` only if the manual `Update From Release Contract` workflow should be able to push automation update branches.
+- Keep release GitHub App private keys separate from production runtime secrets.
+- Configure `PUBLIC_DEPLOY_UPDATE_APP_ID` as a repository or organization variable and `PUBLIC_DEPLOY_UPDATE_APP_PRIVATE_KEY` as a secret only if the manual `Update From Release Contract` workflow should be able to push automation update branches and open or update public deploy update PRs.
+- Do not configure `PUBLIC_DEPLOY_UPDATE_DEPLOY_KEY`; the update workflow uses the public deploy update GitHub App instead of an SSH deploy key.

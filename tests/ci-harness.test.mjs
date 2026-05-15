@@ -1044,7 +1044,7 @@ test("release workflow publishes automatically from verified release tags", asyn
   assert.match(workflow, /\n  verify-release-source:\n\s+name: verify-release-source\n/);
   assert.match(workflow, /\n  build-release:\n\s+name: build-release\n[\s\S]*?needs:\n\s+- verify-release-source\n/);
   assert.doesNotMatch(workflow, /\n  approve-production-release:\n/);
-  assert.match(workflow, /\n  publish-release:\n\s+name: publish-release\n[\s\S]*?needs:\n\s+- build-release\n[\s\S]*?permissions:\n\s+contents: write\n/);
+  assert.match(workflow, /\n  publish-release:\n\s+name: publish-release\n[\s\S]*?needs:\n\s+- build-release\n/);
   assert.doesNotMatch(workflow, /if: github\.event_name == 'workflow_dispatch'/);
   assert.doesNotMatch(workflow, /environment: production/);
   assert.doesNotMatch(workflow, /PRODUCTION_RELEASE_APPROVER/);
@@ -1056,7 +1056,7 @@ test("release workflow isolates tests from the release tag environment", async (
   assert.match(workflow, /RELEASE_TAG='' node --test tests\/\*\.test\.mjs/);
 });
 
-test("only publish-release workflow job requests contents write", async () => {
+test("workflows keep the default GitHub token read-only", async () => {
   const workflowDir = path.join(projectRoot, ".github", "workflows");
   const workflowFiles = (await readdir(workflowDir)).filter((fileName) => /\.(ya?ml)$/.test(fileName));
   const writeGrants = [];
@@ -1080,7 +1080,7 @@ test("only publish-release workflow job requests contents write", async () => {
     }
   }
 
-  assert.deepEqual(writeGrants, [{ fileName: "release.yml", job: "publish-release" }]);
+  assert.deepEqual(writeGrants, []);
 });
 
 test("workflow job display names are stable lowercase kebab-case", async () => {
@@ -1112,14 +1112,31 @@ test("create-release-tag workflow uses GitHub App tag creation without an approv
   assert.doesNotMatch(workflow, /RELEASE_TAG_APPROVER/);
   assert.doesNotMatch(workflow, /Verify release tag approver/);
   assert.match(workflow, /actions\/create-github-app-token@[0-9a-f]{40}/);
-  assert.match(workflow, /RELEASE_TAG_APP_ID/);
-  assert.match(workflow, /RELEASE_TAG_APP_PRIVATE_KEY/);
+  assert.match(workflow, /RELEASE_APP_ID/);
+  assert.match(workflow, /RELEASE_APP_PRIVATE_KEY/);
   assert.match(workflow, /permission-contents: write/);
   assert.match(workflow, /git tag -a "\$VERSION" -m "Release \$VERSION"/);
   assert.match(workflow, /RELEASE_TAG_TOKEN: \$\{\{ steps\.release-tag-token\.outputs\.token \}\}/);
   assert.match(workflow, /x-access-token:\$\{RELEASE_TAG_TOKEN\}@github\.com/);
+  assert.doesNotMatch(workflow, /RELEASE_TAG_APP_ID/);
+  assert.doesNotMatch(workflow, /RELEASE_TAG_APP_PRIVATE_KEY/);
   assert.doesNotMatch(workflow, /RELEASE_TAG_DEPLOY_KEY/);
   assert.doesNotMatch(workflow, /permissions:\n  contents: write/);
+});
+
+test("release workflow publishes with the release GitHub App token", async () => {
+  const workflow = await readFile(path.join(projectRoot, ".github", "workflows", "release.yml"), "utf8");
+
+  assert.match(workflow, /Verify release GitHub App configuration/);
+  assert.match(workflow, /actions\/create-github-app-token@[0-9a-f]{40}/);
+  assert.match(workflow, /RELEASE_APP_ID/);
+  assert.match(workflow, /RELEASE_APP_PRIVATE_KEY/);
+  assert.match(workflow, /permission-contents: write/);
+  assert.match(workflow, /GH_TOKEN: \$\{\{ steps\.release-token\.outputs\.token \}\}/);
+  assert.doesNotMatch(workflow, /GH_TOKEN: \$\{\{ github\.token \}\}/);
+  assert.doesNotMatch(workflow, /RELEASE_TAG_APP_ID/);
+  assert.doesNotMatch(workflow, /RELEASE_TAG_APP_PRIVATE_KEY/);
+  assert.doesNotMatch(workflow, /permissions:\n\s+contents: write/);
 });
 
 test("update-from-contract workflow trusts the canonical source app release identity", async () => {
@@ -1134,6 +1151,28 @@ test("update-from-contract workflow trusts the canonical source app release iden
     /CONTRACT_CERTIFICATE_IDENTITY_REGEXP: \^https:\/\/github\\\.com\/HustleOps\/hustleops-app\/\\\.github\/workflows\/release\\\.yml@refs\/tags\/v\[0-9\]\+\\\.\[0-9\]\+\\\.\[0-9\]\+\$/,
   );
   assert.doesNotMatch(workflow, /HustleOps\/HustleOps\/\.github\/workflows\/release\.yml/);
+});
+
+test("update-from-contract workflow pushes automation PRs with a GitHub App token", async () => {
+  const workflow = await readFile(path.join(projectRoot, ".github", "workflows", "update-from-contract.yml"), "utf8");
+
+  assert.match(
+    workflow,
+    /- name: Detect public deploy changes[\s\S]*?has_changes=false[\s\S]*?echo "has-changes=\$\{has_changes\}"[\s\S]*?- name: Verify public deploy update GitHub App configuration[\s\S]*?if: steps\.public-deploy-changes\.outputs\.has-changes == 'true'[\s\S]*?- name: Create public deploy update GitHub App token/,
+  );
+  assert.match(workflow, /actions\/create-github-app-token@[0-9a-f]{40}/);
+  assert.match(workflow, /PUBLIC_DEPLOY_UPDATE_APP_ID/);
+  assert.match(workflow, /PUBLIC_DEPLOY_UPDATE_APP_PRIVATE_KEY/);
+  assert.match(workflow, /permission-contents: write/);
+  assert.match(workflow, /permission-pull-requests: write/);
+  assert.match(workflow, /APP_SLUG: \$\{\{ steps\.public-deploy-update-token\.outputs\.app-slug \}\}/);
+  assert.match(workflow, /GH_TOKEN: \$\{\{ steps\.public-deploy-update-token\.outputs\.token \}\}/);
+  assert.match(workflow, /x-access-token:\$\{GH_TOKEN\}@github\.com\/\$\{REPOSITORY\}\.git/);
+  assert.match(workflow, /git config user\.name "\$COMMITTER_NAME"/);
+  assert.doesNotMatch(workflow, /PUBLIC_DEPLOY_UPDATE_DEPLOY_KEY/);
+  assert.doesNotMatch(workflow, /ssh-keyscan|GIT_SSH_COMMAND|public-deploy-update-deploy-key|git@github\.com/);
+  assert.doesNotMatch(workflow, /GH_TOKEN: \$\{\{ github\.token \}\}/);
+  assert.doesNotMatch(workflow, /^\s+pull-requests:\s+write$/m);
 });
 
 test("workflows do not call the removed production approver helper", async () => {

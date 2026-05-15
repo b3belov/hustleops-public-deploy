@@ -23,6 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      pull-requests: write
     steps:
       - name: Check out public deploy repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
@@ -191,10 +192,9 @@ jobs:
         id: public-deploy-update-token
         uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3
         with:
-          app-id: ${{ vars.RELEASE_APP_ID }}
+          client-id: ${{ vars.RELEASE_APP_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
           permission-contents: write
-          permission-pull-requests: write
 
       - name: Resolve public deploy update app bot identity
         if: steps.public-deploy-changes.outputs.has-changes == 'true'
@@ -219,7 +219,8 @@ jobs:
         if: steps.public-deploy-changes.outputs.has-changes == 'true'
         shell: bash
         env:
-          GH_TOKEN: ${{ steps.public-deploy-update-token.outputs.token }}
+          BRANCH_PUSH_TOKEN: ${{ steps.public-deploy-update-token.outputs.token }}
+          GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
           TAG: ${{ steps.public-deploy-changes.outputs.tag }}
           BRANCH_NAME: ${{ steps.public-deploy-changes.outputs.branch-name }}
@@ -228,8 +229,13 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [[ -z "$GH_TOKEN" ]]; then
+          if [[ -z "$BRANCH_PUSH_TOKEN" ]]; then
             echo "Public deploy update GitHub App token is required to push the automation update branch." >&2
+            exit 2
+          fi
+
+          if [[ -z "$GH_TOKEN" ]]; then
+            echo "GitHub Actions token is required to open or update the public deploy update PR." >&2
             exit 2
           fi
 
@@ -240,7 +246,7 @@ jobs:
           git commit -m "chore(release): update public deploy for ${TAG}"
 
           remote_branch="refs/heads/${BRANCH_NAME}"
-          push_url="https://x-access-token:${GH_TOKEN}@github.com/${REPOSITORY}.git"
+          push_url="https://x-access-token:${BRANCH_PUSH_TOKEN}@github.com/${REPOSITORY}.git"
           remote_ref_file="$(mktemp)"
 
           if git ls-remote --exit-code --heads "$push_url" "$remote_branch" > "$remote_ref_file" 2>/dev/null; then

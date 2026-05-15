@@ -1056,7 +1056,7 @@ test("release workflow isolates tests from the release tag environment", async (
   assert.match(workflow, /RELEASE_TAG='' node --test tests\/\*\.test\.mjs/);
 });
 
-test("workflows keep the default GitHub token read-only", async () => {
+test("workflows do not grant content writes to the default GitHub token", async () => {
   const workflowDir = path.join(projectRoot, ".github", "workflows");
   const workflowFiles = (await readdir(workflowDir)).filter((fileName) => /\.(ya?ml)$/.test(fileName));
   const writeGrants = [];
@@ -1114,6 +1114,8 @@ test("create-release-tag workflow uses GitHub App tag creation without an approv
   assert.match(workflow, /actions\/create-github-app-token@[0-9a-f]{40}/);
   assert.match(workflow, /RELEASE_APP_ID/);
   assert.match(workflow, /RELEASE_APP_PRIVATE_KEY/);
+  assert.match(workflow, /client-id: \$\{\{ vars\.RELEASE_APP_ID \}\}/);
+  assert.doesNotMatch(workflow, /^\s+app-id:/m);
   assert.match(workflow, /permission-contents: write/);
   assert.match(workflow, /git tag -a "\$VERSION" -m "Release \$VERSION"/);
   assert.match(workflow, /RELEASE_TAG_TOKEN: \$\{\{ steps\.release-tag-token\.outputs\.token \}\}/);
@@ -1131,6 +1133,8 @@ test("release workflow publishes with the release GitHub App token", async () =>
   assert.match(workflow, /actions\/create-github-app-token@[0-9a-f]{40}/);
   assert.match(workflow, /RELEASE_APP_ID/);
   assert.match(workflow, /RELEASE_APP_PRIVATE_KEY/);
+  assert.match(workflow, /client-id: \$\{\{ vars\.RELEASE_APP_ID \}\}/);
+  assert.doesNotMatch(workflow, /^\s+app-id:/m);
   assert.match(workflow, /permission-contents: write/);
   assert.match(workflow, /GH_TOKEN: \$\{\{ steps\.release-token\.outputs\.token \}\}/);
   assert.doesNotMatch(workflow, /GH_TOKEN: \$\{\{ github\.token \}\}/);
@@ -1163,18 +1167,20 @@ test("update-from-contract workflow pushes automation PRs with the release GitHu
   assert.match(workflow, /actions\/create-github-app-token@[0-9a-f]{40}/);
   assert.match(workflow, /RELEASE_APP_ID/);
   assert.match(workflow, /RELEASE_APP_PRIVATE_KEY/);
+  assert.match(workflow, /\n    permissions:\n      contents: read\n      pull-requests: write\n/);
+  assert.match(workflow, /client-id: \$\{\{ vars\.RELEASE_APP_ID \}\}/);
+  assert.doesNotMatch(workflow, /^\s+app-id:/m);
   assert.match(workflow, /permission-contents: write/);
-  assert.match(workflow, /permission-pull-requests: write/);
+  assert.doesNotMatch(workflow, /permission-pull-requests: write/);
   assert.match(workflow, /APP_SLUG: \$\{\{ steps\.public-deploy-update-token\.outputs\.app-slug \}\}/);
-  assert.match(workflow, /GH_TOKEN: \$\{\{ steps\.public-deploy-update-token\.outputs\.token \}\}/);
-  assert.match(workflow, /x-access-token:\$\{GH_TOKEN\}@github\.com\/\$\{REPOSITORY\}\.git/);
+  assert.match(workflow, /BRANCH_PUSH_TOKEN: \$\{\{ steps\.public-deploy-update-token\.outputs\.token \}\}/);
+  assert.match(workflow, /GH_TOKEN: \$\{\{ github\.token \}\}/);
+  assert.match(workflow, /x-access-token:\$\{BRANCH_PUSH_TOKEN\}@github\.com\/\$\{REPOSITORY\}\.git/);
   assert.match(workflow, /git config user\.name "\$COMMITTER_NAME"/);
   assert.doesNotMatch(workflow, /PUBLIC_DEPLOY_UPDATE_APP_ID/);
   assert.doesNotMatch(workflow, /PUBLIC_DEPLOY_UPDATE_APP_PRIVATE_KEY/);
   assert.doesNotMatch(workflow, /PUBLIC_DEPLOY_UPDATE_DEPLOY_KEY/);
   assert.doesNotMatch(workflow, /ssh-keyscan|GIT_SSH_COMMAND|public-deploy-update-deploy-key|git@github\.com/);
-  assert.doesNotMatch(workflow, /GH_TOKEN: \$\{\{ github\.token \}\}/);
-  assert.doesNotMatch(workflow, /^\s+pull-requests:\s+write$/m);
 });
 
 test("workflows do not call the removed production approver helper", async () => {

@@ -1122,6 +1122,20 @@ test("create-release-tag workflow uses GitHub App tag creation without an approv
   assert.doesNotMatch(workflow, /permissions:\n  contents: write/);
 });
 
+test("update-from-contract workflow trusts the canonical source app release identity", async () => {
+  const workflow = await readFile(path.join(projectRoot, ".github", "workflows", "update-from-contract.yml"), "utf8");
+
+  assert.match(
+    workflow,
+    /CONTRACT_CERTIFICATE_IDENTITY_PATTERN: https:\/\/github\.com\/HustleOps\/hustleops-app\/\.github\/workflows\/release\.yml@refs\/tags\/v\*/,
+  );
+  assert.match(
+    workflow,
+    /CONTRACT_CERTIFICATE_IDENTITY_REGEXP: \^https:\/\/github\\\.com\/HustleOps\/hustleops-app\/\\\.github\/workflows\/release\\\.yml@refs\/tags\/v\[0-9\]\+\\\.\[0-9\]\+\\\.\[0-9\]\+\$/,
+  );
+  assert.doesNotMatch(workflow, /HustleOps\/HustleOps\/\.github\/workflows\/release\.yml/);
+});
+
 test("workflows do not call the removed production approver helper", async () => {
   const workflowDir = path.join(projectRoot, ".github", "workflows");
   const workflowFiles = (await readdir(workflowDir)).filter((fileName) => /\.(ya?ml)$/.test(fileName));

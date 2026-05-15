@@ -167,32 +167,32 @@ jobs:
             echo "has-changes=${has_changes}"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Verify public deploy update GitHub App configuration
+      - name: Verify release GitHub App configuration for public deploy updates
         if: steps.public-deploy-changes.outputs.has-changes == 'true'
         shell: bash
         env:
-          PUBLIC_DEPLOY_UPDATE_APP_ID: ${{ vars.PUBLIC_DEPLOY_UPDATE_APP_ID }}
-          PUBLIC_DEPLOY_UPDATE_APP_PRIVATE_KEY: ${{ secrets.PUBLIC_DEPLOY_UPDATE_APP_PRIVATE_KEY }}
+          RELEASE_APP_ID: ${{ vars.RELEASE_APP_ID }}
+          RELEASE_APP_PRIVATE_KEY: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
         run: |
           set -euo pipefail
 
-          if [[ -z "$PUBLIC_DEPLOY_UPDATE_APP_ID" ]]; then
-            echo "PUBLIC_DEPLOY_UPDATE_APP_ID is required to push the automation update branch." >&2
+          if [[ -z "$RELEASE_APP_ID" ]]; then
+            echo "RELEASE_APP_ID is required to push the automation update branch." >&2
             exit 2
           fi
 
-          if [[ -z "$PUBLIC_DEPLOY_UPDATE_APP_PRIVATE_KEY" ]]; then
-            echo "PUBLIC_DEPLOY_UPDATE_APP_PRIVATE_KEY is required to push the automation update branch." >&2
+          if [[ -z "$RELEASE_APP_PRIVATE_KEY" ]]; then
+            echo "RELEASE_APP_PRIVATE_KEY is required to push the automation update branch." >&2
             exit 2
           fi
 
-      - name: Create public deploy update GitHub App token
+      - name: Create release GitHub App token for public deploy updates
         if: steps.public-deploy-changes.outputs.has-changes == 'true'
         id: public-deploy-update-token
         uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3
         with:
-          app-id: ${{ vars.PUBLIC_DEPLOY_UPDATE_APP_ID }}
-          private-key: ${{ secrets.PUBLIC_DEPLOY_UPDATE_APP_PRIVATE_KEY }}
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
           permission-contents: write
           permission-pull-requests: write
 

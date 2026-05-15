@@ -95,5 +95,6 @@ permissions:
 - Keep production runtime secrets on the target host or in repository/organization secret stores selected for the runner model.
 - Keep release verification and build jobs free of production secrets.
 - Keep release GitHub App private keys separate from production runtime secrets.
-- Configure `PUBLIC_DEPLOY_UPDATE_APP_ID` as a repository or organization variable and `PUBLIC_DEPLOY_UPDATE_APP_PRIVATE_KEY` as a secret only if the manual `Update From Release Contract` workflow should be able to push automation update branches and open or update public deploy update PRs.
-- Do not configure `PUBLIC_DEPLOY_UPDATE_DEPLOY_KEY`; the update workflow uses the public deploy update GitHub App instead of an SSH deploy key.
+- Configure `RELEASE_APP_ID` as a repository or organization variable and `RELEASE_APP_PRIVATE_KEY` as a secret for the release GitHub App. `Create Release Tag`, `Release`, and `Update From Release Contract` all use this credential pair.
+- Grant the release GitHub App `contents: write` and `pull requests: write` when `Update From Release Contract` should push automation update branches and open or update public deploy update PRs.
+- Do not configure `PUBLIC_DEPLOY_UPDATE_DEPLOY_KEY`, `PUBLIC_DEPLOY_UPDATE_APP_ID`, or `PUBLIC_DEPLOY_UPDATE_APP_PRIVATE_KEY`; the update workflow uses the release GitHub App instead.

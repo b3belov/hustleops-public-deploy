@@ -1153,22 +1153,24 @@ test("update-from-contract workflow trusts the canonical source app release iden
   assert.doesNotMatch(workflow, /HustleOps\/HustleOps\/\.github\/workflows\/release\.yml/);
 });
 
-test("update-from-contract workflow pushes automation PRs with a GitHub App token", async () => {
+test("update-from-contract workflow pushes automation PRs with the release GitHub App token", async () => {
   const workflow = await readFile(path.join(projectRoot, ".github", "workflows", "update-from-contract.yml"), "utf8");
 
   assert.match(
     workflow,
-    /- name: Detect public deploy changes[\s\S]*?has_changes=false[\s\S]*?echo "has-changes=\$\{has_changes\}"[\s\S]*?- name: Verify public deploy update GitHub App configuration[\s\S]*?if: steps\.public-deploy-changes\.outputs\.has-changes == 'true'[\s\S]*?- name: Create public deploy update GitHub App token/,
+    /- name: Detect public deploy changes[\s\S]*?has_changes=false[\s\S]*?echo "has-changes=\$\{has_changes\}"[\s\S]*?- name: Verify release GitHub App configuration for public deploy updates[\s\S]*?if: steps\.public-deploy-changes\.outputs\.has-changes == 'true'[\s\S]*?- name: Create release GitHub App token for public deploy updates/,
   );
   assert.match(workflow, /actions\/create-github-app-token@[0-9a-f]{40}/);
-  assert.match(workflow, /PUBLIC_DEPLOY_UPDATE_APP_ID/);
-  assert.match(workflow, /PUBLIC_DEPLOY_UPDATE_APP_PRIVATE_KEY/);
+  assert.match(workflow, /RELEASE_APP_ID/);
+  assert.match(workflow, /RELEASE_APP_PRIVATE_KEY/);
   assert.match(workflow, /permission-contents: write/);
   assert.match(workflow, /permission-pull-requests: write/);
   assert.match(workflow, /APP_SLUG: \$\{\{ steps\.public-deploy-update-token\.outputs\.app-slug \}\}/);
   assert.match(workflow, /GH_TOKEN: \$\{\{ steps\.public-deploy-update-token\.outputs\.token \}\}/);
   assert.match(workflow, /x-access-token:\$\{GH_TOKEN\}@github\.com\/\$\{REPOSITORY\}\.git/);
   assert.match(workflow, /git config user\.name "\$COMMITTER_NAME"/);
+  assert.doesNotMatch(workflow, /PUBLIC_DEPLOY_UPDATE_APP_ID/);
+  assert.doesNotMatch(workflow, /PUBLIC_DEPLOY_UPDATE_APP_PRIVATE_KEY/);
   assert.doesNotMatch(workflow, /PUBLIC_DEPLOY_UPDATE_DEPLOY_KEY/);
   assert.doesNotMatch(workflow, /ssh-keyscan|GIT_SSH_COMMAND|public-deploy-update-deploy-key|git@github\.com/);
   assert.doesNotMatch(workflow, /GH_TOKEN: \$\{\{ github\.token \}\}/);

@@ -25,7 +25,7 @@ Use GitHub Actions, not a local shell:
 
 The version must match `vMAJOR.MINOR.PATCH`. The release workflow also validates the checked-in release metadata before publishing release assets.
 
-The workflow checks out `main` with persisted credentials disabled, refuses to overwrite any local or remote tag, creates an annotated tag, and pushes it with a dedicated release-tag GitHub App token. Configure `RELEASE_TAG_APP_ID` and `RELEASE_TAG_APP_PRIVATE_KEY`, then allow that App to create protected `v*` tags in the tag ruleset bypass list.
+The workflow checks out `main` with persisted credentials disabled, refuses to overwrite any local or remote tag, creates an annotated tag, and pushes it with the release GitHub App token. Configure `RELEASE_APP_ID` and `RELEASE_APP_PRIVATE_KEY`, then allow that App to create protected `v*` tags in the tag ruleset bypass list.
 
 ## Why Local Tag Pushes Are Forbidden
 
@@ -40,7 +40,7 @@ tag commit reachable from origin/main -> release may continue
 tag commit not reachable from origin/main -> release fails immediately
 ```
 
-`build-release` depends on `verify-release-source`. `publish-release` depends on `build-release`, has the only release-workflow `contents: write` permission, and runs automatically for verified `v*` tag pushes. Publishing cannot continue after a failed source verification or failed build.
+`build-release` depends on `verify-release-source`. `publish-release` depends on `build-release`, mints the release GitHub App installation token for publication, and runs automatically for verified `v*` tag pushes. Publishing cannot continue after a failed source verification or failed build.
 
 ## Production Deployment
 

@@ -48,7 +48,7 @@ unchecked feature branch -> manual v1.2.3 tag -> release workflow -> production 
 
 `.github/workflows/create-release-tag.yml` is the preferred release tag creation path. It accepts `version`, validates `vMAJOR.MINOR.PATCH`, checks out `main` with persisted credentials disabled, rejects existing tags, creates an annotated tag, and pushes it with the release GitHub App token. The workflow keeps `contents: read` for the default `GITHUB_TOKEN`; only the App installation token receives `contents: write` for the tag push.
 
-For repositories with protected `v*` tag creation and GitHub Release publication, configure `RELEASE_APP_ID` as a repo or org variable and `RELEASE_APP_PRIVATE_KEY` as a repository secret for the release GitHub App.
+For repositories with protected `v*` tag creation and GitHub Release publication, configure `RELEASE_APP_ID` as a repo or org variable containing the release GitHub App Client ID and `RELEASE_APP_PRIVATE_KEY` as a repository secret for the release GitHub App.
 
 ## GitHub Actions Hardening
 
@@ -95,6 +95,7 @@ permissions:
 - Keep production runtime secrets on the target host or in repository/organization secret stores selected for the runner model.
 - Keep release verification and build jobs free of production secrets.
 - Keep release GitHub App private keys separate from production runtime secrets.
-- Configure `RELEASE_APP_ID` as a repository or organization variable and `RELEASE_APP_PRIVATE_KEY` as a secret for the release GitHub App. `Create Release Tag`, `Release`, and `Update From Release Contract` all use this credential pair.
-- Grant the release GitHub App `contents: write` and `pull requests: write` when `Update From Release Contract` should push automation update branches and open or update public deploy update PRs.
+- Configure `RELEASE_APP_ID` as a repository or organization variable containing the release GitHub App Client ID and `RELEASE_APP_PRIVATE_KEY` as a secret for the release GitHub App. `Create Release Tag`, `Release`, and `Update From Release Contract` all use this credential pair.
+- Grant the release GitHub App `contents: write` so release tag creation, GitHub Release publication, and public deploy update branch pushes can request content-write installation tokens.
+- `Update From Release Contract` uses the workflow-scoped `GITHUB_TOKEN` with `pull-requests: write` only for opening or updating the public deploy update PR, so the release GitHub App does not need Pull requests write permission.
 - Do not configure `PUBLIC_DEPLOY_UPDATE_DEPLOY_KEY`, `PUBLIC_DEPLOY_UPDATE_APP_ID`, or `PUBLIC_DEPLOY_UPDATE_APP_PRIVATE_KEY`; the update workflow uses the release GitHub App instead.

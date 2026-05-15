@@ -67,6 +67,7 @@ RELEASE_APP_ID
 ```
 
 `RELEASE_APP_ID` must identify the release GitHub App.
+Use the GitHub App Client ID, not the legacy numeric App ID, because the workflow passes it to `actions/create-github-app-token` as `client-id`.
 
 Set this repository secret:
 

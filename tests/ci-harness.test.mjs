@@ -1165,11 +1165,12 @@ test("update-from-contract workflow pushes automation PRs with the release GitHu
     /- name: Detect public deploy changes[\s\S]*?has_changes=false[\s\S]*?echo "has-changes=\$\{has_changes\}"[\s\S]*?- name: Verify release GitHub App configuration for public deploy updates[\s\S]*?if: steps\.public-deploy-changes\.outputs\.has-changes == 'true'[\s\S]*?- name: Create release GitHub App token for public deploy updates/,
   );
   assert.match(workflow, /actions\/create-github-app-token@[0-9a-f]{40}/);
-  assert.match(workflow, /RELEASE_APP_ID/);
+  assert.match(workflow, /RELEASE_APP_CLIENT_ID/);
+  assert.doesNotMatch(workflow, /RELEASE_APP_ID/);
   assert.match(workflow, /RELEASE_APP_PRIVATE_KEY/);
   assert.match(workflow, /\n    permissions:\n      contents: read\n/);
   assert.doesNotMatch(workflow, /\n      pull-requests: write\n/);
-  assert.match(workflow, /client-id: \$\{\{ vars\.RELEASE_APP_ID \}\}/);
+  assert.match(workflow, /client-id: \$\{\{ vars\.RELEASE_APP_CLIENT_ID \}\}/);
   assert.doesNotMatch(workflow, /^\s+app-id:/m);
   assert.match(workflow, /permission-contents: write/);
   assert.match(workflow, /permission-pull-requests: write/);
